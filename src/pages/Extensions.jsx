@@ -158,7 +158,7 @@ const Extensions = () => {
                     <input
                         type="text"
                         placeholder={t('extensions.search')}
-                        className="w-full bg-surface/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
+                        className="w-full bg-background border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-medium shadow-inner"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
