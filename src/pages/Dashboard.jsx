@@ -579,34 +579,34 @@ function Dashboard({ onInstanceClick, runningInstances = {}, triggerCreate, onCr
         <div className="w-full h-full flex flex-col overflow-hidden relative">
             <div className="p-8 flex-1 min-h-0 flex flex-col w-full h-full">
                 {isLoading && <LoadingOverlay message="Processing..." />}
-                <div className="flex justify-between items-center mb-8">
-                    <div>
+                <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0">
                         <h1 className="text-3xl font-bold text-white mb-1">{t('dashboard.title')}</h1>
                         <p className="text-gray-400 text-sm">{t('dashboard.desc')}</p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="relative group">
+                    <div className="flex w-full flex-wrap items-stretch gap-4 xl:w-auto xl:justify-end">
+                        <div className="relative group w-full sm:w-64">
                             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                             <input
                                 type="text"
                                 placeholder={t('dashboard.search_placeholder')}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-64 bg-background border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                                className="w-full bg-background border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white placeholder-gray-500 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                             />
                         </div>
-                        <div className="w-48">
+                        <div className="w-full sm:w-48">
                             <Dropdown options={sortOptions} value={sortMethod} onChange={setSortMethod} />
                         </div>
-                        <div className="w-48">
+                        <div className="w-full sm:w-48">
                             <Dropdown options={groupOptions} value={groupMethod} onChange={setGroupMethod} />
                         </div>
 
                         { }
-                        <div className="relative" ref={createMenuRef}>
+                        <div className="relative w-full sm:w-auto" ref={createMenuRef}>
                             <button
                                 onClick={() => setShowCreateMenu(!showCreateMenu)}
-                                className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-black transition-all transform rounded-xl shadow-primary-glow bg-primary hover:bg-primary-hover hover:scale-105"
+                                className="flex w-full items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-black transition-all transform rounded-xl shadow-primary-glow bg-primary hover:bg-primary-hover hover:scale-105 sm:w-auto"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                                 {t('dashboard.new_instance')}
