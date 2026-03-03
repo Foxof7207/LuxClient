@@ -11,6 +11,7 @@ try {
 const electronAPI = {
     platform: process.platform,
     isPackaged: ipcRenderer.sendSync('app:is-packaged'),
+    getVersion: () => ipcRenderer.invoke('app:get-version'),
 
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),

@@ -111,6 +111,17 @@ function createWindow() {
         else mainWindow.maximize();
     });
     ipcMain.on('window-close', () => mainWindow.close());
+
+    // Explicitly read package.json version to ensure it works in dev and prod
+    ipcMain.handle('app:get-version', () => {
+        try {
+            const pkg = require(path.join(__dirname, '../package.json'));
+            return pkg.version;
+        } catch (e) {
+            return app.getVersion();
+        }
+    });
+
     ipcMain.handle('open-external', async (_, url) => {
         try {
             const parsedUrl = new URL(url);

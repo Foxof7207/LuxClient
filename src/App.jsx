@@ -101,6 +101,7 @@ function App() {
     const [appSettings, setAppSettings] = useState({});
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [appVersion, setAppVersion] = useState('');
 
     const downloadsRef = useRef(null);
     const sessionsRef = useRef(null);
@@ -172,8 +173,17 @@ function App() {
             }
         };
 
+        const loadVersion = async () => {
+            if (window.electronAPI?.getVersion) {
+                try {
+                    const v = await window.electronAPI.getVersion();
+                    setAppVersion(v);
+                } catch (e) { }
+            }
+        };
+
         const init = async () => {
-            await Promise.all([checkSession(), loadTheme()]);
+            await Promise.all([checkSession(), loadTheme(), loadVersion()]);
             setIsInitialLoading(false);
         };
 
@@ -765,6 +775,12 @@ function App() {
                         </div>
                     </div>
                     <UpdateNotification />
+                </div>
+            )}
+
+            {appVersion && (
+                <div className="absolute bottom-1 left-1 z-[9999] text-gray-500 font-mono text-sm opacity-50 pointer-events-none select-none">
+                    v{appVersion}
                 </div>
             )}
 

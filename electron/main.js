@@ -278,6 +278,15 @@ function createWindow() {
         event.returnValue = app.isPackaged;
     });
 
+    ipcMain.handle('app:get-version', () => {
+        try {
+            const pkg = require(path.join(__dirname, '../package.json'));
+            return pkg.version;
+        } catch (e) {
+            return app.getVersion();
+        }
+    });
+
     const discord = require('../backend/handlers/discord');
     discord.initRPC();
     const backupManager = require('../backend/backupManager');
