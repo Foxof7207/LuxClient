@@ -54,7 +54,9 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
             { id: 'recent-worlds', visible: true, width: 12 },
             { id: 'mod-of-the-day', visible: true, width: 12 },
             { id: 'modpacks', visible: true, width: 12 }
-        ]
+        ],
+        animationsExaggerated: false,
+        focusMode: false
     });
 
     useEffect(() => {
@@ -77,8 +79,10 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
     const loadDashSettings = async () => {
         try {
             const res = await window.electronAPI.getSettings();
-            if (res.success && res.settings.dashboard) {
-                let settings = res.settings.dashboard;
+            if (res.success) {
+                let settings = res.settings.dashboard || {};
+                const animationsExaggerated = res.settings.animationsExaggerated || false;
+                const focusMode = res.settings.focusMode || false;
 
                 if (!settings.layout) {
                     const newLayout = [];
@@ -108,7 +112,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
                         dashboard: settings
                     });
                 }
-                setDashSettings(settings);
+                setDashSettings({ ...settings, animationsExaggerated, focusMode });
             }
         } catch (e) {
             console.error('Failed to load dashboard settings:', e);
@@ -308,7 +312,11 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
     const renderSection = (section) => {
         if (!section.visible && !isEditing) return null;
 
-        const sectionClass = `transition-all duration-300 ${isEditing ? 'relative ring-2 ring-primary/20 bg-primary/5 rounded-2xl p-4 cursor-move group/section' : ''} ${section.width === 6 ? 'col-span-6' : 'col-span-12'} ${!section.visible ? 'opacity-30' : ''}`;
+        const sectionIndex = dashSettings.layout.findIndex(s => s.id === section.id);
+        const animationDelay = !dashSettings.focusMode ? `delay-[${(sectionIndex + 1) * 100}ms]` : '';
+        const animationClass = !dashSettings.focusMode ? `animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both ${animationDelay}` : '';
+
+        const sectionClass = `transition-all duration-300 ${isEditing ? 'relative ring-2 ring-primary/20 bg-primary/5 rounded-2xl p-4 cursor-move group/section' : ''} ${section.width === 6 ? 'col-span-6' : 'col-span-12'} ${!section.visible ? 'opacity-30' : ''} ${animationClass}`;
 
         return (
             <div
@@ -355,7 +363,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
                                     <div
                                         key={instance.name}
                                         onClick={() => onInstanceClick(instance)}
-                                        className="group flex items-center gap-4 bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-primary/30 rounded-xl px-4 py-3 cursor-pointer transition-all"
+                                        className={`group flex items-center gap-4 bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-primary/30 rounded-xl px-4 py-3 cursor-pointer transition-all hover:shadow-lg hover:shadow-primary/5 active:scale-[0.99] ${dashSettings.animationsExaggerated ? 'hover:scale-[1.03]' : 'hover:scale-[1.01]'}`}
                                     >
                                         <div className="w-12 h-12 bg-background rounded-lg flex items-center justify-center overflow-hidden border border-white/5 shrink-0">
                                             {instance.icon && (instance.icon.startsWith('data:') || instance.icon.startsWith('app-media://')) ? (
@@ -432,7 +440,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
                                     <div
                                         key={`${world.instanceName}-${world.name}-${idx}`}
                                         onClick={() => { if (inst) onInstanceClick(inst); }}
-                                        className="group bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-primary/30 rounded-xl p-4 cursor-pointer transition-all"
+                                        className={`group bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-primary/30 rounded-xl p-4 cursor-pointer transition-all hover:shadow-lg hover:shadow-primary/5 active:scale-[0.98] ${dashSettings.animationsExaggerated ? 'hover:scale-[1.04]' : 'hover:scale-[1.02]'}`}
                                     >
                                         <div className="flex items-center gap-3 mb-3">
                                             <div className="w-8 h-8 bg-background rounded-lg flex items-center justify-center overflow-hidden border border-white/5 shrink-0">
@@ -484,7 +492,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
                         ) : (
                             <div className={`grid gap-4 ${section.width === 6 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-2 md:grid-cols-3'}`}>
                                 {modpacks.map((pack) => (
-                                    <div key={pack.project_id} className="group relative rounded-xl overflow-hidden border border-white/5 hover:border-primary/30 transition-all cursor-pointer bg-surface/30 hover:bg-surface/50" onClick={() => setSelectedModpack(pack)}>
+                                    <div key={pack.project_id} className={`group relative rounded-xl overflow-hidden border border-white/5 hover:border-primary/30 transition-all cursor-pointer bg-surface/30 hover:bg-surface/50 hover:shadow-xl active:scale-[0.98] ${dashSettings.animationsExaggerated ? 'hover:scale-[1.04]' : 'hover:scale-[1.02]'}`} onClick={() => setSelectedModpack(pack)}>
                                         <div className="aspect-video w-full overflow-hidden bg-background">
                                             {pack.gallery?.[0] ? <img src={pack.gallery[0]} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" /> : <div className="w-full h-full flex items-center justify-center"><svg className="w-10 h-10 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg></div>}
                                         </div>
@@ -510,7 +518,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
                         {loadingModOfTheDay ? (
                             <div className="flex items-center gap-3 text-gray-500 text-sm"><div className="w-5 h-5 border-2 border-white/20 border-t-primary rounded-full animate-spin"></div>{t('home.loading_mod')}</div>
                         ) : modOfTheDay ? (
-                            <div className="rounded-xl overflow-hidden border border-white/5 bg-surface/30 hover:bg-surface/50 transition-all">
+                            <div className="rounded-xl overflow-hidden border border-white/5 bg-surface/30 hover:bg-surface/50 transition-all hover:border-primary/20 hover:shadow-2xl">
                                 { }
                                 <div className="relative w-full h-40 bg-gradient-to-br from-primary/20 to-background overflow-hidden">
                                     {modOfTheDay.featured_image ? (
@@ -696,7 +704,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
     return (
         <div className="p-8 h-full flex flex-col overflow-y-auto custom-scrollbar">
             { }
-            <div className="mb-8 flex justify-between items-start">
+            <div className={`mb-8 flex justify-between items-start ${!dashSettings.focusMode ? 'animate-in fade-in slide-in-from-top-4 duration-700' : ''}`}>
                 <div>
                     <h1 className="text-3xl font-bold text-white mb-1">
                         {dashSettings.welcomeMessage === 'Welcome back!' || dashSettings.welcomeMessage === t('home.welcome_back') ? t('home.welcome_back') : dashSettings.welcomeMessage}
@@ -739,7 +747,7 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
 
             { }
             {dashSettings.layout.find(s => s.id === 'recent-instances')?.visible && recentInstances.length === 0 && !isEditing && (
-                <div className="mb-10 p-8 border-2 border-dashed border-white/10 rounded-2xl text-center">
+                <div className={`mb-10 p-8 border-2 border-dashed border-white/10 rounded-2xl text-center ${!dashSettings.focusMode ? 'animate-in fade-in zoom-in duration-500 delay-300 fill-mode-both' : ''}`}>
                     <svg className="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
@@ -750,11 +758,11 @@ function Home({ onInstanceClick, runningInstances = {}, onNavigateSearch, isGues
             { }
             {selectedModpack && (
                 <div
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-300"
                     onClick={() => setSelectedModpack(null)}
                 >
                     <div
-                        className="bg-surface border border-white/10 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col"
+                        className="bg-surface border border-white/10 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
                         onClick={(e) => e.stopPropagation()}
                     >
                         { }

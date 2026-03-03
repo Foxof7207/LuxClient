@@ -459,8 +459,16 @@ function App() {
                             {theme.bgMedia.type === 'video' ? (
                                 <video
                                     key={theme.bgMedia.url}
-                                    autoPlay muted loop
-                                    className="w-full h-full object-cover"
+                                    autoPlay muted loop playsInline
+                                    preload="auto"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    style={{ transform: 'translateZ(0)' }} // HW acceleration hint
+                                    onCanPlay={(e) => e.target.classList.add('opacity-100')}
+                                    onError={(e) => {
+                                        console.error("Background video decoding error:", e);
+                                        // Fallback to static background or color if video fails
+                                        setTheme(prev => ({ ...prev, bgMedia: { ...prev.bgMedia, type: 'none' } }));
+                                    }}
                                 >
                                     <source src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`} type="video/mp4" />
                                 </video>
@@ -468,7 +476,7 @@ function App() {
                                 <img
                                     key={theme.bgMedia.url}
                                     src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`}
-                                    className="w-full h-full object-cover"
+                                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 opacity-100"
                                     alt=""
                                 />
                             )}

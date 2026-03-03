@@ -9,13 +9,26 @@ function MiniPreview({ theme }) {
                 style={{ background: theme.backgroundColor }}
             >
                 {theme.bgMedia?.url && (
-                    <div
-                        className="absolute inset-0 bg-cover bg-center"
-                        style={{
-                            backgroundImage: `url(app-media:///${theme.bgMedia.url.replace(/\\/g, '/')})`,
-                            opacity: 1 - (theme.bgOverlay ?? 0.4)
-                        }}
-                    />
+                    <div className="absolute inset-0 overflow-hidden">
+                        {theme.bgMedia.type === 'video' ? (
+                            <video
+                                key={theme.bgMedia.url}
+                                autoPlay muted loop playsInline
+                                className="w-full h-full object-cover"
+                                style={{ opacity: 1 - (theme.bgOverlay ?? 0.4) }}
+                            >
+                                <source src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`} type="video/mp4" />
+                            </video>
+                        ) : (
+                            <div
+                                className="absolute inset-0 bg-cover bg-center"
+                                style={{
+                                    backgroundImage: `url(app-media:///${theme.bgMedia.url.replace(/\\/g, '/')})`,
+                                    opacity: 1 - (theme.bgOverlay ?? 0.4)
+                                }}
+                            />
+                        )}
+                    </div>
                 )}
                 <div
                     className="absolute inset-0"
