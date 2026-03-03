@@ -90,13 +90,20 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
 
     const handlePreview = async (project) => {
         try {
+            const projectId = project.project_id || project.projectId;
+            if (!projectId) {
+                console.error('[Preview] No project ID found:', project);
+                addNotification('No ID found for this project.', 'error');
+                return;
+            }
+
             addNotification(t('instance_details.actions.loading_preview', { title: project.title }), 'info');
-            const res = await window.electronAPI.getModrinthProject(project.project_id);
+            const res = await window.electronAPI.getModrinthProject(projectId);
             if (res.success) {
                 const fullProject = {
                     ...res.project,
                     project_id: res.project.id,
-                    project_type: project.project_type
+                    project_type: project.project_type || 'mod'
                 };
                 setPreviewProject(fullProject);
                 setShowPreviewModal(true);
@@ -1160,7 +1167,11 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                                         .map(shader => (
                                             <div key={shader.name} className="flex items-center justify-between p-3 bg-surface rounded-xl border border-white/5 hover:border-white/10 hover:bg-white/5 transition-all group">
                                                 <div className="flex items-center gap-4">
-                                                    <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center text-primary font-mono text-[10px] border border-primary/20 text-center leading-tight whitespace-pre-line">{t('instance.shader_label')}</div>
+                                                    {shader.icon ? (
+                                                        <img src={shader.icon} alt="" className="w-10 h-10 rounded-lg bg-background-dark/50 object-cover" />
+                                                    ) : (
+                                                        <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center text-primary font-mono text-[10px] border border-primary/20 text-center leading-tight whitespace-pre-line">{t('instance.shader_label')}</div>
+                                                    )}
                                                     <div>
                                                         <div className="font-bold text-white">{shader.title}</div>
                                                         <div className="flex gap-2 text-[10px] text-gray-500 mt-0.5">

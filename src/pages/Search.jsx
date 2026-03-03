@@ -61,8 +61,14 @@ function Search({ initialCategory, onCategoryConsumed }) {
 
     const handlePreview = async (mod) => {
         try {
+            const projectId = mod.project_id || mod.projectId;
+            if (!projectId) {
+                addNotification(t('search.error_preview_no_id'), 'error');
+                return;
+            }
+
             addNotification(t('search.loading_preview', { title: mod.title }), 'info');
-            const res = await window.electronAPI.getModrinthProject(mod.project_id);
+            const res = await window.electronAPI.getModrinthProject(projectId);
             if (res.success) {
                 const fullProject = {
                     ...res.project,
