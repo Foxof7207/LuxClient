@@ -91,20 +91,9 @@ const FONT_OPTIONS = [
   { value: "Roboto", label: "Roboto" },
   { value: "Geist", label: "Geist" },
   { value: "Open Sans", label: "Open Sans" },
-  { value: "Lato", label: "Lato" },
-  { value: "Oswald", label: "Oswald" },
-  { value: "Raleway", label: "Raleway" },
   { value: "Nunito", label: "Nunito" },
   { value: "Ubuntu", label: "Ubuntu" },
-  { value: "Playfair Display", label: "Playfair Display" },
-  { value: "Merriweather", label: "Merriweather" },
-  { value: "Fira Code", label: "Fira Code" },
-  { value: "JetBrains Mono", label: "JetBrains Mono" },
   { value: "Outfit", label: "Outfit" },
-  { value: "Quicksand", label: "Quicksand" },
-  { value: "Work Sans", label: "Work Sans" },
-  { value: "Rubik", label: "Rubik" },
-  { value: "PT Sans", label: "PT Sans" },
 ];
 
 const DEFAULT_THEME = {
@@ -125,6 +114,22 @@ const DEFAULT_THEME = {
   customFonts: [],
 };
 
+const sanitizeTheme = (nextTheme) => {
+  const availableFonts = new Set([
+    ...FONT_OPTIONS.map((font) => font.value),
+    ...((nextTheme.customFonts ?? []).map((font) => font.family)),
+  ]);
+
+  if (!availableFonts.has(nextTheme.fontFamily)) {
+    return {
+      ...nextTheme,
+      fontFamily: "Poppins",
+    };
+  }
+
+  return nextTheme;
+};
+
 function Styling() {
   const { t } = useTranslation();
   const { addNotification } = useNotification();
@@ -135,11 +140,6 @@ function Styling() {
   const [customPresets, setCustomPresets] = useState([]);
   const [showExportModal, setShowExportModal] = useState(false);
   const fontOptions = [
-    ...FONT_OPTIONS.map((font) => ({
-      value: font.value,
-      label: font.label,
-      style: { fontFamily: font.value },
-    })),
     ...(theme.customFonts ?? []).map((font) => ({
       value: font.family,
       label: font.name,
@@ -150,6 +150,11 @@ function Styling() {
         </svg>
       ),
       fontId: font.id,
+    })),
+    ...FONT_OPTIONS.map((font) => ({
+      value: font.value,
+      label: font.label,
+      style: { fontFamily: font.value },
     })),
   ];
 
@@ -279,7 +284,7 @@ function Styling() {
   };
 
   const applyPreset = (p) => {
-    const nt = {
+    const nt = sanitizeTheme({
       ...theme,
       primaryColor: p.primary,
       backgroundColor: p.bg,
@@ -289,7 +294,7 @@ function Styling() {
       panelOpacity: p.panelOpacity ?? theme.panelOpacity,
       bgOverlay: p.bgOverlay ?? theme.bgOverlay,
       fontFamily: p.fontFamily ?? theme.fontFamily,
-    };
+    });
     setTheme(nt);
     applyTheme(nt, true);
   };
@@ -298,7 +303,7 @@ function Styling() {
     const res = await window.electronAPI.getSettings();
     if (res.success) {
       if (res.settings.theme) {
-        const loadedTheme = { ...DEFAULT_THEME, ...res.settings.theme };
+        const loadedTheme = sanitizeTheme({ ...DEFAULT_THEME, ...res.settings.theme });
         setTheme(loadedTheme);
         applyTheme(loadedTheme);
       }
@@ -308,7 +313,7 @@ function Styling() {
   const handleSelectCustomFont = async () => {
     const res = await window.electronAPI.selectCustomFont();
     if (res.success && res.settings?.theme) {
-      const nextTheme = { ...DEFAULT_THEME, ...res.settings.theme };
+      const nextTheme = sanitizeTheme({ ...DEFAULT_THEME, ...res.settings.theme });
       setTheme(nextTheme);
       applyTheme(nextTheme);
     }
@@ -321,7 +326,7 @@ function Styling() {
 
     const res = await window.electronAPI.deleteCustomFont(option.fontId);
     if (res.success && res.settings?.theme) {
-      const nextTheme = { ...DEFAULT_THEME, ...res.settings.theme };
+      const nextTheme = sanitizeTheme({ ...DEFAULT_THEME, ...res.settings.theme });
       setTheme(nextTheme);
       applyTheme(nextTheme);
     }
@@ -398,7 +403,7 @@ function Styling() {
   };
 
   const handleUpdate = (key, value) => {
-    const newTheme = { ...theme, [key]: value };
+    const newTheme = sanitizeTheme({ ...theme, [key]: value });
     setTheme(newTheme);
     // Background changes are preview-only until saved
     const isBackgroundChange = key === "bgMedia" || key === "bgOverlay";

@@ -110,6 +110,23 @@ function App() {
     const lastClientView = useRef('dashboard');
     const lastServerView = useRef('server-dashboard');
 
+    const resolveFontFamily = (nextTheme) => {
+        const builtInFonts = new Set([
+            'Poppins',
+            'Inter',
+            'Montserrat',
+            'Roboto',
+            'Geist',
+            'Open Sans',
+            'Nunito',
+            'Ubuntu',
+            'Outfit'
+        ]);
+        const customFonts = (nextTheme.customFonts ?? []).map((font) => font.family);
+        const availableFonts = new Set([...builtInFonts, ...customFonts]);
+        return availableFonts.has(nextTheme.fontFamily) ? nextTheme.fontFamily : 'Poppins';
+    };
+
     useEffect(() => {
         if (currentMode === 'client') lastClientView.current = currentView;
         if (currentMode === 'server') lastServerView.current = currentView;
@@ -309,6 +326,7 @@ function App() {
 
     const applyTheme = (t) => {
         const root = document.documentElement;
+        const fontFamily = resolveFontFamily(t);
         syncCustomFonts(t.customFonts ?? []);
         root.style.setProperty('--primary-color', t.primaryColor);
         root.style.setProperty('--background-color', t.backgroundColor);
@@ -321,7 +339,7 @@ function App() {
         root.style.setProperty('--global-glow-intensity', t.globalGlow ?? 0);
         root.style.setProperty('--panel-opacity', t.panelOpacity ?? 0.85);
         root.style.setProperty('--bg-overlay-opacity', t.bgOverlay ?? 0.4);
-        root.style.setProperty('--launcher-font', `'${t.fontFamily ?? 'Poppins'}'`);
+        root.style.setProperty('--launcher-font', `'${fontFamily}'`);
 
         const adjustColor = (hex, percent) => {
             if (!hex || typeof hex !== 'string') return '#ffffff';
