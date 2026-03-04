@@ -325,6 +325,7 @@ function createWindow() {
     }
 
     require('../backend/handlers/java')(ipcMain);
+    require('../backend/handlers/external')(ipcMain);
     const updater = require('../backend/handlers/updater');
     updater(ipcMain, mainWindow);
 
