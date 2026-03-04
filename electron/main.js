@@ -550,8 +550,11 @@ if (!gotTheLock) {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
             mainWindow.focus();
             handleDeepLink(commandLine);
+        } else if (splashWindow) {
+            splashWindow.focus();
         }
     });
 }
@@ -591,16 +594,9 @@ app.whenReady().then(() => {
         tray.setContextMenu(contextMenu);
         tray.on('click', () => {
             if (mainWindow) {
-                if (mainWindow.isVisible()) {
-                    if (mainWindow.isFocused()) {
-                        mainWindow.hide();
-                    } else {
-                        mainWindow.focus();
-                    }
-                } else {
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
             }
         });
         tray.on('double-click', () => {
@@ -623,11 +619,6 @@ app.whenReady().then(() => {
         }
     });
 
-    app.on('second-instance', () => {
-        if (splashWindow) {
-            splashWindow.focus();
-        }
-    });
 
 });
 
