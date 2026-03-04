@@ -71,7 +71,29 @@
         "modified": "Modified",
         "readonly": "Read-only",
         "switch_to_client": "Switch to Client",
-        "switch_to_server": "Switch to Server"
+        "switch_to_server": "Switch to Server",
+        "news": "News",
+        "no_news_available": "No news available"
+    },
+    "action_bar": {
+        "title": "Action Bar",
+        "customize": "Customize",
+        "exit_customize": "Done",
+        "empty": "No actions yet",
+        "add_action": "Add Action",
+        "name_placeholder": "Action name",
+        "programs": "Programs & Scripts",
+        "all_files": "All Files",
+        "type_external": "Start external file",
+        "type_instance_start": "Start instance",
+        "type_instance_stop": "Stop instance",
+        "type_server_start": "Start server",
+        "type_server_stop": "Stop server",
+        "path_placeholder": "Path (e.g. C:\\Windows\\System32\\cmd.exe)",
+        "browse": "Browse",
+        "no_targets": "No targets available",
+        "image": "Image",
+        "add": "Add"
     },
     "home": {
         "welcome_back": "Welcome back!",

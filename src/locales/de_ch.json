@@ -70,7 +70,29 @@
         "size": "Größe",
         "modified": "Geändert",
         "switch_to_client": "Zum Client wechseln",
-        "switch_to_server": "Zum Server wechseln"
+        "switch_to_server": "Zum Server wechseln",
+        "news": "Neuigkeiten",
+        "no_news_available": "Keine Neuigkeiten verfügbar"
+    },
+    "action_bar": {
+        "title": "Aktionsleiste",
+        "customize": "Anpassen",
+        "exit_customize": "Fertig",
+        "empty": "Noch keine Aktionen",
+        "add_action": "Aktion hinzufügen",
+        "name_placeholder": "Aktionsname",
+        "programs": "Programme & Skripte",
+        "all_files": "Alle Dateien",
+        "type_external": "Externe Datei starten",
+        "type_instance_start": "Instanz starten",
+        "type_instance_stop": "Instanz stoppen",
+        "type_server_start": "Server starten",
+        "type_server_stop": "Server stoppen",
+        "path_placeholder": "Pfad (z.B. C:\\Windows\\System32\\cmd.exe)",
+        "browse": "Durchsuchen",
+        "no_targets": "Keine Ziele verfügbar",
+        "image": "Bild",
+        "add": "Hinzufügen"
     },
     "home": {
         "welcome_back": "Willkomme zrugg!",

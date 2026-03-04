@@ -70,7 +70,29 @@
         "size": "Dimensione",
         "modified": "Modificato",
         "switch_to_client": "Passa al Client",
-        "switch_to_server": "Passa al Server"
+        "switch_to_server": "Passa al Server",
+        "news": "Notizie",
+        "no_news_available": "Nessuna notizia disponibile"
+    },
+    "action_bar": {
+        "title": "Barra azioni",
+        "customize": "Personalizza",
+        "exit_customize": "Fine",
+        "empty": "Nessuna azione per ora",
+        "add_action": "Aggiungi azione",
+        "name_placeholder": "Nome azione",
+        "programs": "Programmi e script",
+        "all_files": "Tutti i file",
+        "type_external": "Avvia file esterno",
+        "type_instance_start": "Avvia istanza",
+        "type_instance_stop": "Ferma istanza",
+        "type_server_start": "Avvia server",
+        "type_server_stop": "Ferma server",
+        "path_placeholder": "Percorso (es. C:\\Windows\\System32\\cmd.exe)",
+        "browse": "Sfoglia",
+        "no_targets": "Nessuna destinazione disponibile",
+        "image": "Immagine",
+        "add": "Aggiungi"
     },
     "home": {
         "welcome_back": "Bentornato!",

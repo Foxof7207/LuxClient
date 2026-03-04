@@ -185,6 +185,7 @@ function Dashboard({ onInstanceClick, runningInstances = {}, activeDownloads = {
     const [showCreateMenu, setShowCreateMenu] = useState(false);
     const [showModalImportMenu, setShowModalImportMenu] = useState(false);
     const [showCodeModal, setShowCodeModal] = useState(false);
+    const [actionBarActions, setActionBarActions] = useState([]);
     const createMenuRef = useRef(null);
     const internalImportMenuRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -254,6 +255,40 @@ function Dashboard({ onInstanceClick, runningInstances = {}, activeDownloads = {
             if (removeListener) removeListener();
         };
     }, []);
+
+    useEffect(() => {
+        const loadActionBarActions = async () => {
+            try {
+                const settingsRes = await window.electronAPI.getSettings();
+                if (settingsRes?.success) {
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+                    setActionBarActions(existingActions);
+                }
+            } catch (e) { }
+        };
+
+        loadActionBarActions();
+
+        const removeSettingsListener = window.electronAPI?.onSettingsUpdated?.((newSettings) => {
+            const existingActions = Array.isArray(newSettings?.actionBarActions)
+                ? newSettings.actionBarActions
+                : [];
+            setActionBarActions(existingActions);
+        });
+
+        return () => {
+            if (removeSettingsListener) removeSettingsListener();
+        };
+    }, []);
+
+    const hasInstanceAction = (instanceName) => {
+        return actionBarActions.some((action) =>
+            action?.target === instanceName &&
+            (action?.type === 'instance:start' || action?.type === 'instance:stop')
+        );
+    };
 
     useEffect(() => {
         if (showCreateModal) {
@@ -435,6 +470,75 @@ function Dashboard({ onInstanceClick, runningInstances = {}, activeDownloads = {
         setContextMenu(null);
 
         switch (action) {
+            case 'add-to-actionbar':
+                try {
+                    const settingsRes = await window.electronAPI.getSettings();
+                    if (!settingsRes?.success) {
+                        addNotification('Failed to load settings', 'error');
+                        break;
+                    }
+
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+
+                    const liveStatus = runningInstances[instance.name];
+                    const isRunning = liveStatus === 'running';
+                    const nextAction = {
+                        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        name: isRunning ? `${instance.name} (${t('common.stop')})` : `${instance.name} (${t('common.play')})`,
+                        type: isRunning ? 'instance:stop' : 'instance:start',
+                        icon: instance.icon && instance.icon.startsWith('data:') ? instance.icon : '',
+                        path: '',
+                        target: instance.name
+                    };
+
+                    const saveRes = await window.electronAPI.saveSettings({
+                        ...settingsRes.settings,
+                        actionBarActions: [...existingActions, nextAction]
+                    });
+
+                    if (saveRes?.success) {
+                        addNotification(t('action_bar.added', 'Added to Actionbar'), 'success');
+                        setActionBarActions([...existingActions, nextAction]);
+                    } else {
+                        addNotification('Failed to save action', 'error');
+                    }
+                } catch (e) {
+                    addNotification(`Failed to add action: ${e.message}`, 'error');
+                }
+                break;
+            case 'remove-from-actionbar':
+                try {
+                    const settingsRes = await window.electronAPI.getSettings();
+                    if (!settingsRes?.success) {
+                        addNotification('Failed to load settings', 'error');
+                        break;
+                    }
+
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+
+                    const filteredActions = existingActions.filter((entry) =>
+                        !(entry?.target === instance.name && (entry?.type === 'instance:start' || entry?.type === 'instance:stop'))
+                    );
+
+                    const saveRes = await window.electronAPI.saveSettings({
+                        ...settingsRes.settings,
+                        actionBarActions: filteredActions
+                    });
+
+                    if (saveRes?.success) {
+                        addNotification(t('action_bar.removed', 'Removed from Actionbar'), 'success');
+                        setActionBarActions(filteredActions);
+                    } else {
+                        addNotification('Failed to remove action', 'error');
+                    }
+                } catch (e) {
+                    addNotification(`Failed to remove action: ${e.message}`, 'error');
+                }
+                break;
             case 'play':
                 window.electronAPI.launchGame(instance.name);
                 break;
@@ -749,6 +853,17 @@ function Dashboard({ onInstanceClick, runningInstances = {}, activeDownloads = {
                         <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                         {t('dashboard.context.folder')}
                     </button>
+                    {hasInstanceAction(contextMenu.instance?.name) ? (
+                        <button onClick={() => handleContextAction('remove-from-actionbar')} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-white/5 text-red-300">
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7" /></svg>
+                            {t('action_bar.remove_from_actionbar', 'Remove from Actionbar')}
+                        </button>
+                    ) : (
+                        <button onClick={() => handleContextAction('add-to-actionbar')} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-white/5">
+                            <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            {t('action_bar.add_to_actionbar', 'Add to Actionbar')}
+                        </button>
+                    )}
                     <div className="my-1 border-t border-white/5"></div>
                     <button onClick={() => handleContextAction('delete')} className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-red-400 hover:bg-red-500/20">
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

@@ -50,6 +50,7 @@ function ServerDashboard({ onServerClick, runningInstances = {}, isGuest }) {
     const [conflictServer, setConflictServer] = useState(null);
     const [conflictOtherName, setConflictOtherName] = useState('');
     const [pendingServerData, setPendingServerData] = useState(null);
+    const [actionBarActions, setActionBarActions] = useState([]);
     const serverSoftware = [
         { value: 'vanilla', label: 'Vanilla' },
         { value: 'paper', label: 'Paper' },
@@ -87,6 +88,40 @@ function ServerDashboard({ onServerClick, runningInstances = {}, isGuest }) {
             if (removeListener) removeListener();
         };
     }, [selectedServer]);
+
+    useEffect(() => {
+        const loadActionBarActions = async () => {
+            try {
+                const settingsRes = await window.electronAPI.getSettings();
+                if (settingsRes?.success) {
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+                    setActionBarActions(existingActions);
+                }
+            } catch (e) { }
+        };
+
+        loadActionBarActions();
+
+        const removeSettingsListener = window.electronAPI?.onSettingsUpdated?.((newSettings) => {
+            const existingActions = Array.isArray(newSettings?.actionBarActions)
+                ? newSettings.actionBarActions
+                : [];
+            setActionBarActions(existingActions);
+        });
+
+        return () => {
+            if (removeSettingsListener) removeSettingsListener();
+        };
+    }, []);
+
+    const hasServerAction = (serverName) => {
+        return actionBarActions.some((action) =>
+            action?.target === serverName &&
+            (action?.type === 'server:start' || action?.type === 'server:stop')
+        );
+    };
 
     useEffect(() => {
         if (showCreateModal) {
@@ -368,6 +403,69 @@ function ServerDashboard({ onServerClick, runningInstances = {}, isGuest }) {
 
         try {
             switch (action) {
+                case 'add-to-actionbar': {
+                    const settingsRes = await window.electronAPI.getSettings();
+                    if (!settingsRes?.success) {
+                        addNotification('Failed to load settings', 'error');
+                        break;
+                    }
+
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+
+                    const liveStatus = runningInstances[server.name] || server.status;
+                    const isRunning = liveStatus === 'running';
+                    const nextAction = {
+                        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        name: isRunning ? `${server.name} (${t('server.stop')})` : `${server.name} (${t('server.start')})`,
+                        type: isRunning ? 'server:stop' : 'server:start',
+                        icon: server.icon && server.icon.startsWith('data:') ? server.icon : '',
+                        path: '',
+                        target: server.name
+                    };
+
+                    const saveRes = await window.electronAPI.saveSettings({
+                        ...settingsRes.settings,
+                        actionBarActions: [...existingActions, nextAction]
+                    });
+
+                    if (saveRes?.success) {
+                        addNotification(t('action_bar.added', 'Added to Actionbar'), 'success');
+                        setActionBarActions([...existingActions, nextAction]);
+                    } else {
+                        addNotification('Failed to save action', 'error');
+                    }
+                    break;
+                }
+                case 'remove-from-actionbar': {
+                    const settingsRes = await window.electronAPI.getSettings();
+                    if (!settingsRes?.success) {
+                        addNotification('Failed to load settings', 'error');
+                        break;
+                    }
+
+                    const existingActions = Array.isArray(settingsRes.settings?.actionBarActions)
+                        ? settingsRes.settings.actionBarActions
+                        : [];
+
+                    const filteredActions = existingActions.filter((entry) =>
+                        !(entry?.target === server.name && (entry?.type === 'server:start' || entry?.type === 'server:stop'))
+                    );
+
+                    const saveRes = await window.electronAPI.saveSettings({
+                        ...settingsRes.settings,
+                        actionBarActions: filteredActions
+                    });
+
+                    if (saveRes?.success) {
+                        addNotification(t('action_bar.removed', 'Removed from Actionbar'), 'success');
+                        setActionBarActions(filteredActions);
+                    } else {
+                        addNotification('Failed to remove action', 'error');
+                    }
+                    break;
+                }
                 case 'start':
                     if (isGuest) {
                         addNotification("To do that you have to be logged in", 'error');
@@ -691,6 +789,17 @@ function ServerDashboard({ onServerClick, runningInstances = {}, isGuest }) {
                         <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                         {t('server.folder')}
                     </button>
+                    {hasServerAction(contextMenu.server?.name) ? (
+                        <button onClick={() => handleContextAction('remove-from-actionbar')} className="w-full px-4 py-2 text-left hover:bg-white/5 flex items-center gap-3 text-sm text-red-300">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7" /></svg>
+                            {t('action_bar.remove_from_actionbar', 'Remove from Actionbar')}
+                        </button>
+                    ) : (
+                        <button onClick={() => handleContextAction('add-to-actionbar')} className="w-full px-4 py-2 text-left hover:bg-white/5 flex items-center gap-3 text-sm">
+                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            {t('action_bar.add_to_actionbar', 'Add to Actionbar')}
+                        </button>
+                    )}
                     <div className="border-t border-white/5 my-1"></div>
                     <button onClick={() => handleContextAction('delete')} className="w-full px-4 py-2 text-left hover:bg-red-500/20 text-red-400 flex items-center gap-3 text-sm">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

@@ -35,6 +35,7 @@ function createWindow() {
     require('../backend/handlers/modrinth')(ipcMain);
     require('../backend/handlers/data')(ipcMain);
     require('../backend/handlers/settings')(ipcMain);
+    require('../backend/handlers/external')(ipcMain, mainWindow);
     const discord = require('../backend/handlers/discord');
     discord.initRPC();
     const isDev = process.env.NODE_ENV === 'development';

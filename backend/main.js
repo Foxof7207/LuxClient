@@ -73,6 +73,8 @@ function createWindow() {
         require('./handlers/data')(ipcMain, mainWindow);
         console.log('[Main] Registering settings handler...');
         require('./handlers/settings')(ipcMain, mainWindow);
+        console.log('[Main] Registering external handler...');
+        require('./handlers/external')(ipcMain, mainWindow);
         console.log('[Main] Registering server handler...');
         require('./handlers/servers')(ipcMain, mainWindow);
         console.log('[Main] Registering modpack code handler...');
@@ -119,22 +121,6 @@ function createWindow() {
             return pkg.version;
         } catch (e) {
             return app.getVersion();
-        }
-    });
-
-    ipcMain.handle('open-external', async (_, url) => {
-        try {
-            const parsedUrl = new URL(url);
-            if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
-                await shell.openExternal(url);
-                return { success: true };
-            } else {
-                console.warn(`[Main] Blocked attempt to open non-http(s) URL: ${url}`);
-                return { success: false, error: 'Blocked non-http(s) URL' };
-            }
-        } catch (e) {
-            console.error(`[Main] Failed to open external URL: ${url}`, e);
-            return { success: false, error: e.message };
         }
     });
 

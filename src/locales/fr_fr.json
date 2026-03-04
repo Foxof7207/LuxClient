@@ -71,7 +71,29 @@
         "modified": "Modifié",
         "readonly": "Lecture seule",
         "switch_to_client": "Passer au Client",
-        "switch_to_server": "Passer au Serveur"
+        "switch_to_server": "Passer au Serveur",
+        "news": "Actualités",
+        "no_news_available": "Aucune actualité disponible"
+    },
+    "action_bar": {
+        "title": "Barre d’actions",
+        "customize": "Personnaliser",
+        "exit_customize": "Terminer",
+        "empty": "Aucune action pour l’instant",
+        "add_action": "Ajouter une action",
+        "name_placeholder": "Nom de l’action",
+        "programs": "Programmes et scripts",
+        "all_files": "Tous les fichiers",
+        "type_external": "Lancer un fichier externe",
+        "type_instance_start": "Démarrer l’instance",
+        "type_instance_stop": "Arrêter l’instance",
+        "type_server_start": "Démarrer le serveur",
+        "type_server_stop": "Arrêter le serveur",
+        "path_placeholder": "Chemin (ex. C:\\Windows\\System32\\cmd.exe)",
+        "browse": "Parcourir",
+        "no_targets": "Aucune cible disponible",
+        "image": "Image",
+        "add": "Ajouter"
     },
     "home": {
         "welcome_back": "Bon retour !",

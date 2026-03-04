@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PlayerHead from './PlayerHead';
-import OptimizedImage from './OptimizedImage';
+import ActionBar from './ActionBar';
 import * as ReactWindow from 'react-window';
 const { FixedSizeList } = ReactWindow;
 import { AutoSizer } from 'react-virtualized-auto-sizer';
@@ -13,7 +13,6 @@ const formatUUID = (uuid) => {
 function RightPanel({ userProfile, onProfileUpdate }) {
     const [showSwitcher, setShowSwitcher] = useState(false);
     const [accounts, setAccounts] = useState([]);
-    const [newsItems, setNewsItems] = useState([]);
     const [liveSkin, setLiveSkin] = useState(null);
 
     useEffect(() => {
@@ -54,24 +53,6 @@ function RightPanel({ userProfile, onProfileUpdate }) {
         }
     }, [showSwitcher]);
 
-    useEffect(() => {
-        loadNews();
-        const interval = setInterval(loadNews, 60000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const loadNews = async () => {
-        if (window.electronAPI.getNews) {
-
-            const res = await window.electronAPI.getNews();
-
-            if (res.success) {
-                setNewsItems(res.news?.slice(0, 4) || []);
-            } else {
-                console.error("Frontend: News failed to load", res.error);
-            }
-        }
-    };
     const loadAccounts = async () => {
         const accs = await window.electronAPI.getAccounts();
         setAccounts(accs || []);
@@ -215,41 +196,7 @@ function RightPanel({ userProfile, onProfileUpdate }) {
                 </div>
             </div>
 
-            <div className="my-2 border-t border-white/5 mx-1" />
-
-            { }
-            <div className="flex-1 flex flex-col min-h-0">
-                <div className="flex items-center justify-between px-1 mb-4">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Launcher News</span>
-                    <div className="h-[1px] flex-1 bg-white/5 ml-3"></div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                    {newsItems.length === 0 ? (
-                        <div className="text-gray-500 text-xs text-center py-4">No news available</div>
-                    ) : (
-                        <div className="flex flex-col gap-4">
-                            {newsItems.map((item, index) => (
-                                <div
-                                    key={index}
-                                    className="group cursor-pointer"
-                                    onClick={() => item.link && window.electronAPI.openExternal(item.link)}
-                                >
-                                    <OptimizedImage
-                                        src={item.image}
-                                        alt={item.title}
-                                        className="h-24 w-full object-cover bg-surface rounded-xl border border-white/5 mb-2 overflow-hidden relative shadow-lg"
-                                        fallback={<div className="h-24 w-full bg-gradient-to-br from-purple-900/20 to-blue-900/20 rounded-xl"></div>}
-                                    />
-                                    <div className="text-sm font-bold text-gray-200 group-hover:text-primary transition-colors leading-tight truncate">{item.title}</div>
-                                    {item.description && <div className="text-[10px] text-gray-400 mt-1 line-clamp-2">{item.description}</div>}
-                                    <div className="text-[10px] text-gray-600 mt-1">{item.date}</div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
+            <ActionBar />
         </div>
     );
 }

@@ -95,6 +95,7 @@ const electronAPI = {
     deleteJavaRuntime: (path) => ipcRenderer.invoke('java:delete', path),
     openJavaFolder: () => ipcRenderer.invoke('java:open-folder'),
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    runExternalFile: (filePath) => ipcRenderer.invoke('external:run-file', filePath),
     exportModpackAsCode: (data) => {
         console.log('[Preload] 📤 exportModpackAsCode aufgerufen mit:', data);
         return ipcRenderer.invoke('modpack:export-code', data);

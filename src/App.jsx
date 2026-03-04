@@ -16,12 +16,12 @@ const ServerLibrary = React.lazy(() => import('./pages/ServerLibrary'));
 const InstanceDetails = React.lazy(() => import('./pages/InstanceDetails'));
 const Extensions = React.lazy(() => import('./pages/Extensions'));
 const Login = React.lazy(() => import('./pages/Login'));
+const News = React.lazy(() => import('./pages/News'));
 
 import Sidebar from './components/Sidebar';
 import ServerSidebar from './components/ServerSidebar';
 import UpdateNotification from './components/UpdateNotification';
 import RightPanel from './components/RightPanel';
-import AnnouncementBar from './components/AnnouncementBar';
 import AgreementModal from './components/AgreementModal';
 import LanguageSelectionModal from './components/LanguageSelectionModal';
 import LoadingOverlay from './components/LoadingOverlay';
@@ -561,21 +561,33 @@ function App() {
                             </div>
 
                             {appSettings.showQuickSwitchButton !== false && (
-                                <button
-                                    onClick={() => handleModeSelect(currentMode === 'client' ? 'server' : 'client')}
-                                    className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 ml-2 pointer-events-auto shadow-lg"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                                    </svg>
-                                    {currentMode === 'client' ? t('common.switch_to_server', 'Switch to Server') : t('common.switch_to_client', 'Switch to Client')}
-                                </button>
+                                <>
+                                    <button
+                                        onClick={() => handleModeSelect(currentMode === 'client' ? 'server' : 'client')}
+                                        className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 ml-2 pointer-events-auto shadow-lg"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                        </svg>
+                                        {currentMode === 'client' ? t('common.switch_to_server', 'Switch to Server') : t('common.switch_to_client', 'Switch to Client')}
+                                    </button>
+
+                                    <button
+                                        onClick={() => setCurrentView('news')}
+                                        className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 pointer-events-auto shadow-lg"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 4H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h10M7 16h6" />
+                                        </svg>
+                                        {t('common.news', 'News')}
+                                    </button>
+                                </>
                             )}
                         </div>
 
                         { }
                         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
-                            <AnnouncementBar />
                             <ExtensionSlot name="header.center" className="flex items-center gap-2" />
                         </div>
 
@@ -758,6 +770,8 @@ function App() {
                                             {currentView === 'server-settings' && <ServerSettings />}
                                         </>
                                     )}
+
+                                    {currentView === 'news' && <News />}
 
                                     { }
                                     { }

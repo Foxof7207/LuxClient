@@ -70,7 +70,29 @@
         "size": "Rozmiar",
         "modified": "Zmodyfikowano",
         "switch_to_client": "Przejdź do Klienta",
-        "switch_to_server": "Przejdź do Serwera"
+        "switch_to_server": "Przejdź do Serwera",
+        "news": "Aktualności",
+        "no_news_available": "Brak dostępnych aktualności"
+    },
+    "action_bar": {
+        "title": "Pasek akcji",
+        "customize": "Dostosuj",
+        "exit_customize": "Zakończ",
+        "empty": "Brak akcji",
+        "add_action": "Dodaj akcję",
+        "name_placeholder": "Nazwa akcji",
+        "programs": "Programy i skrypty",
+        "all_files": "Wszystkie pliki",
+        "type_external": "Uruchom plik zewnętrzny",
+        "type_instance_start": "Uruchom instancję",
+        "type_instance_stop": "Zatrzymaj instancję",
+        "type_server_start": "Uruchom serwer",
+        "type_server_stop": "Zatrzymaj serwer",
+        "path_placeholder": "Ścieżka (np. C:\\Windows\\System32\\cmd.exe)",
+        "browse": "Przeglądaj",
+        "no_targets": "Brak dostępnych celów",
+        "image": "Obraz",
+        "add": "Dodaj"
     },
     "home": {
         "welcome_back": "Witaj ponownie!",
