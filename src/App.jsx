@@ -117,6 +117,7 @@ function App() {
             'Montserrat',
             'Roboto',
             'Geist',
+            'JetBrains Mono',
             'Open Sans',
             'Nunito',
             'Ubuntu',

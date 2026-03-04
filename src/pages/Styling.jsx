@@ -90,6 +90,7 @@ const FONT_OPTIONS = [
   { value: "Montserrat", label: "Montserrat" },
   { value: "Roboto", label: "Roboto" },
   { value: "Geist", label: "Geist" },
+  { value: "JetBrains Mono", label: "JetBrains Mono" },
   { value: "Open Sans", label: "Open Sans" },
   { value: "Nunito", label: "Nunito" },
   { value: "Ubuntu", label: "Ubuntu" },

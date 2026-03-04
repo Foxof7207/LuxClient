@@ -38,6 +38,20 @@
 }
 
 @font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/assets/fonts/JetBrainsMono/JetBrainsMono-Variable.ttf') format('truetype');
+  font-weight: 100 800;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/assets/fonts/JetBrainsMono/JetBrainsMono-VariableItalic.ttf') format('truetype');
+  font-weight: 100 800;
+  font-style: italic;
+}
+
+@font-face {
   font-family: 'Open Sans';
   src: url('/assets/fonts/OpenSans/OpenSans-Variable.ttf') format('truetype');
   font-weight: 300 800;
