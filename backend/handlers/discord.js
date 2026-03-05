@@ -63,7 +63,7 @@ const stopRPC = async () => {
         try {
             await rpc.destroy();
         } catch (e) {
-            console.error('Failed to destroy RPC client', e);
+            console.error('Failed to destroy RPC launcher', e);
         }
         rpc = null;
     }

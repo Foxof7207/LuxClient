@@ -32,7 +32,7 @@
         "restart_app": "Reštartovať aplikáciu",
         "error_title": "Ups! Niečo sa pokazilo...",
         "error_desc": "Aplikácia narazila na neočakávanú chybu. Môžete ju skúsiť reštartovať.",
-        "client": "Klient",
+        "launcher": "Klient",
         "server": "Server",
         "new_instance": "Nová inštancia",
         "play": "Hrať",

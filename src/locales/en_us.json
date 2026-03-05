@@ -32,7 +32,7 @@
         "restart_app": "Restart App",
         "error_title": "Oops! Something went wrong...",
         "error_desc": "An unexpected error occurred. Try restarting the app.",
-        "client": "Client",
+        "launcher": "Client",
         "server": "Server",
         "switch_to_client": "Switch to Client",
         "switch_to_server": "Switch to Server",
@@ -342,7 +342,7 @@
             "slovenian": "Slovenian (SI)",
             "swedish": "Swedish (SE)",
             "quick_switch_button": "Quick Switch Button",
-            "quick_switch_button_desc": "Show a button next to the logo to quickly switch between client and server"
+            "quick_switch_button_desc": "Show a button next to the logo to quickly switch between launcher and server"
         },
         "java": {
             "title": "Java Runtime",

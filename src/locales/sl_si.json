@@ -32,7 +32,7 @@
         "restart_app": "Znova zaženi",
         "error_title": "Ups! Nekaj je šlo narobe...",
         "error_desc": "Aplikacija je naletela na nepričakovano napako. Lahko jo poskusite znova zagnati.",
-        "client": "Odjemalec",
+        "launcher": "Odjemalec",
         "server": "Strežnik",
         "new_instance": "Nova instanca",
         "play": "Igraj",

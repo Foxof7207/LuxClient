@@ -32,7 +32,7 @@
         "restart_app": "Repornește Aplicația",
         "error_title": "Hopa! Ceva a mers greșit...",
         "error_desc": "Aplicația a întâmpinat o eroare neașteptată. Poți încerca să o repornești.",
-        "client": "Client",
+        "launcher": "Client",
         "server": "Server",
         "new_instance": "Instanță Nouă",
         "play": "Joacă",

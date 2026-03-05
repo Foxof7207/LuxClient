@@ -32,7 +32,7 @@
         "restart_app": "Redémarrer l'application",
         "error_title": "Oups ! Un problème est survenu...",
         "error_desc": "L'application a rencontré une erreur inattendue. Vous pouvez essayer de la redémarrer.",
-        "client": "Client",
+        "launcher": "Client",
         "server": "Serveur",
         "new_instance": "Nouvelle instance",
         "play": "Jouer",

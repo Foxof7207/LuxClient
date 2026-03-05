@@ -32,7 +32,7 @@
         "restart_app": "App neu starte",
         "error_title": "Uups! Da isch öppis schief gange ...",
         "error_desc": "D'App hät en unerwartete Fehler gha. Probier sie neu z'starte.",
-        "client": "Client",
+        "launcher": "Client",
         "server": "Server",
         "new_instance": "Neui Instanz",
         "play": "Spiele",

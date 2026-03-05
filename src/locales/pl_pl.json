@@ -32,7 +32,7 @@
         "restart_app": "Zrestartuj aplikację",
         "error_title": "Ups! Coś poszło nie tak...",
         "error_desc": "Aplikacja napotkała nieoczekiwany błąd. Możesz spróbować ją ponownie uruchomić.",
-        "client": "Klient",
+        "launcher": "Klient",
         "server": "Serwer",
         "new_instance": "Nowa instancja",
         "play": "Graj",

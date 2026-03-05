@@ -32,7 +32,7 @@
         "restart_app": "Reiniciar app",
         "error_title": "¡Vaya! Algo salió mal...",
         "error_desc": "Ocurrió un error inesperado. Prueba a reiniciar la app.",
-        "client": "Cliente",
+        "launcher": "Cliente",
         "server": "Servidor",
         "new_instance": "Nueva instancia",
         "play": "Jugar",

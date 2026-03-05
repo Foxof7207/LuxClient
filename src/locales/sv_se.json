@@ -32,7 +32,7 @@
         "restart_app": "Starta om appen",
         "error_title": "Hoppsan! Något gick fel...",
         "error_desc": "Ett oväntat fel uppstod i applikationen. Du kan försöka starta om den.",
-        "client": "Klient",
+        "launcher": "Klient",
         "server": "Server",
         "new_instance": "Ny instans",
         "play": "Spela",

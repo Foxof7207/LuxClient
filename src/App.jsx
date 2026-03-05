@@ -68,7 +68,7 @@ function App() {
     const { t, i18n } = useTranslation();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isPending, startTransition] = React.useTransition();
-    const [currentMode, setCurrentMode] = useState('client');
+    const [currentMode, setCurrentMode] = useState('launcher');
     const [userProfile, setUserProfile] = useState(null);
     const [isGuest, setIsGuest] = useState(false);
     const [theme, setTheme] = useState({
@@ -130,7 +130,7 @@ function App() {
     };
 
     useEffect(() => {
-        if (currentMode === 'client') lastClientView.current = currentView;
+        if (currentMode === 'launcher') lastClientView.current = currentView;
         if (currentMode === 'server') lastServerView.current = currentView;
     }, [currentView, currentMode]);
 
@@ -414,7 +414,7 @@ function App() {
             setUserProfile(profile);
             Analytics.setProfile(profile);
             setCurrentView(startPage);
-            setCurrentMode('client');
+            setCurrentMode('launcher');
         });
     };
 
@@ -457,13 +457,13 @@ function App() {
         setSelectedInstance(null);
         setSelectedServer(null);
         startTransition(() => {
-            setCurrentView(currentMode === 'client' ? 'dashboard' : 'server-dashboard');
+            setCurrentView(currentMode === 'launcher' ? 'dashboard' : 'server-dashboard');
         });
     };
 
     const handleModeSelect = (mode) => {
         setCurrentMode(mode);
-        if (mode === 'client') {
+        if (mode === 'launcher') {
             setCurrentView(lastClientView.current || 'dashboard');
         } else if (mode === 'server') {
             setCurrentView(lastServerView.current || 'server-dashboard');
@@ -548,14 +548,14 @@ function App() {
                                         className="absolute top-14 left-0 w-48 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 animate-in fade-in slide-in-from-top-2 duration-100 z-[100]"
                                     >
                                         <button
-                                            onClick={() => handleModeSelect('client')}
-                                            className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'client' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
+                                            onClick={() => handleModeSelect('launcher')}
+                                            className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'launcher' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                                             </svg>
-                                            <span className="font-medium">{t('common.client')}</span>
-                                            {currentMode === 'client' && (
+                                            <span className="font-medium">{t('common.launcher')}</span>
+                                            {currentMode === 'launcher' && (
                                                 <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                                 </svg>
@@ -583,13 +583,13 @@ function App() {
                             {appSettings.showQuickSwitchButton !== false && (
                                 <>
                                     <button
-                                        onClick={() => handleModeSelect(currentMode === 'client' ? 'server' : 'client')}
+                                        onClick={() => handleModeSelect(currentMode === 'launcher' ? 'server' : 'launcher')}
                                         className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 ml-2 pointer-events-auto shadow-lg"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                         </svg>
-                                        {currentMode === 'client' ? t('common.switch_to_server', 'Switch to Server') : t('common.switch_to_client', 'Switch to Client')}
+                                        {currentMode === 'launcher' ? t('common.switch_to_server', 'Switch to Server') : t('common.switch_to_client', 'Switch to Client')}
                                     </button>
 
                                     <button
@@ -700,7 +700,7 @@ function App() {
 
                     <div className="flex flex-1 overflow-hidden">
                         { }
-                        {currentMode === 'client' ? (
+                        {currentMode === 'launcher' ? (
                             <Sidebar
                                 currentView={currentView}
                                 setView={setCurrentView}
@@ -738,7 +738,7 @@ function App() {
                                         <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                                     </div>
                                 }>
-                                    {currentMode === 'client' && (
+                                    {currentMode === 'launcher' && (
                                         <>
                                             {currentView === 'dashboard' && <Home onInstanceClick={handleInstanceClick} runningInstances={runningInstances} isGuest={isGuest} userProfile={userProfile} activeDownloads={activeDownloads} onNavigateSearch={(category) => { setSearchCategory(category); setCurrentView('search'); }} />}
                                             {currentView === 'library' && <Dashboard onInstanceClick={handleInstanceClick} runningInstances={runningInstances} activeDownloads={activeDownloads} triggerCreate={triggerCreateInstance} onCreateHandled={() => setTriggerCreateInstance(false)} isGuest={isGuest} />}

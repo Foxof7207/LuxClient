@@ -111,7 +111,7 @@ class AnalyticsService {
         this.socket.emit('track-creation', {
             software,
             version,
-            mode: 'client'
+            mode: 'launcher'
         });
     }
 

@@ -32,7 +32,7 @@
         "restart_app": "App neu starten",
         "error_title": "Ups! Etwas ist schiefgelaufen...",
         "error_desc": "Die Anwendung ist auf einen unerwarteten Fehler gestoßen. Du kannst versuchen, sie neu zu starten.",
-        "client": "Client",
+        "launcher": "Client",
         "server": "Server",
         "switch_to_client": "Zum Client wechseln",
         "switch_to_server": "Zum Server wechseln",

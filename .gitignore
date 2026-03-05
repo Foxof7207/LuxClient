@@ -35,10 +35,10 @@ news-admin/
 news-admin/**
 MCLC-Mod/
 MCLC-Mod-Sources/
-MCLC-Client/MCLC Website/client/mclc-client.jar
-MCLC Website/client/mclc-client.jar
-MCLC-Client/MCLC Website/client/
-MCLC Website/client/
+MCLC-Client/MCLC Website/launcher/mclc-launcher.jar
+MCLC Website/launcher/mclc-launcher.jar
+MCLC-Client/MCLC Website/launcher/
+MCLC Website/launcher/
 *.tsbuildinfo
 *.blockmap
 *.exe
