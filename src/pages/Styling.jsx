@@ -240,6 +240,12 @@ function Styling() {
     };
   }, []);
 
+  useEffect(() => {
+    if (activeView === 'editor') {
+      loadCustomPresets();
+    }
+  }, [activeView]);
+
   const loadCustomPresets = async () => {
     const res = await window.electronAPI.getCustomPresets();
     if (res.success) setCustomPresets(res.presets);
