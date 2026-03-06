@@ -468,3 +468,62 @@ input[type="color"]::-moz-color-swatch {
   border: none;
   border-radius: 10px;
 }
+
+[data-sonner-toaster] {
+  font-family: var(--launcher-font), sans-serif !important;
+}
+
+[data-sonner-toast][data-styled='true'] {
+  background: rgba(var(--surface-color-rgb, 28, 28, 28), min(calc(var(--panel-opacity, 0.85) + 0.1), 0.98)) !important;
+  color: rgb(243 244 246) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: var(--border-radius) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-title] {
+  color: #ffffff !important;
+  font-size: 0.875rem !important;
+  font-weight: 700 !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-description] {
+  color: rgb(156 163 175) !important;
+  font-size: 0.75rem !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-button] {
+  border-radius: calc(var(--border-radius) - 4px) !important;
+  font-family: inherit !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-button][data-action='true'] {
+  background: var(--primary-color) !important;
+  color: #000000 !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-button][data-action='true']:hover {
+  background: var(--primary-hover-color, var(--primary-color)) !important;
+}
+
+[data-sonner-toast][data-styled='true'] [data-button][data-cancel='true'] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgb(243 244 246) !important;
+}
+
+[data-sonner-toast][data-type='success'][data-styled='true'] {
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+[data-sonner-toast][data-type='error'][data-styled='true'] {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+[data-sonner-toast][data-type='info'][data-styled='true'] {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+[data-sonner-toast][data-type='warning'][data-styled='true'] {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
