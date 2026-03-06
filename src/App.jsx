@@ -111,6 +111,8 @@ function App() {
     const [appVersion, setAppVersion] = useState('');
     const [crashData, setCrashData] = useState(null);
     const [isCrashModalOpen, setIsCrashModalOpen] = useState(false);
+    const [isDownloadsIndicatorVisible, setIsDownloadsIndicatorVisible] = useState(false);
+    const [displayedDownloadProgress, setDisplayedDownloadProgress] = useState(0);
 
     const downloadsRef = useRef(null);
     const sessionsRef = useRef(null);
@@ -500,10 +502,41 @@ function App() {
         setShowModeMenu(prev => anchor === modeMenuAnchor ? !prev : true);
     };
 
-    const activeDownloadCount = Object.keys(activeDownloads).length;
+    const activeDownloadEntries = Object.entries(activeDownloads);
+    const activeDownloadCount = activeDownloadEntries.length;
     const runningCount = Object.keys(runningInstances).filter(k => runningInstances[k] === 'running').length;
     const isAnyActive = activeDownloadCount > 0;
+    const downloadIndicatorProgress = activeDownloadCount > 0
+        ? Math.round(activeDownloadEntries.reduce((total, [, data]) => total + Math.max(0, Math.min(100, Number(data?.progress) || 0)), 0) / activeDownloadCount)
+        : 0;
+    const visibleDownloadProgress = !isAnyActive && isDownloadsIndicatorVisible ? 100 : displayedDownloadProgress;
     const isClientPageEnabled = isFeatureEnabled('openClientPage');
+
+    useEffect(() => {
+        if (!isAnyActive && showDownloads) {
+            setShowDownloads(false);
+        }
+    }, [isAnyActive, showDownloads]);
+
+    useEffect(() => {
+        let hideTimeout;
+
+        if (isAnyActive) {
+            setIsDownloadsIndicatorVisible(true);
+            setDisplayedDownloadProgress(downloadIndicatorProgress);
+        } else if (isDownloadsIndicatorVisible) {
+            setDisplayedDownloadProgress(100);
+            hideTimeout = setTimeout(() => {
+                setIsDownloadsIndicatorVisible(false);
+                setDisplayedDownloadProgress(0);
+            }, 700);
+        }
+
+        return () => {
+            if (hideTimeout) clearTimeout(hideTimeout);
+        };
+    }, [downloadIndicatorProgress, isAnyActive, isDownloadsIndicatorVisible]);
+
     const renderModeMenu = (positionClassName) => (
         <div
             ref={modeMenuRef}
@@ -665,81 +698,102 @@ function App() {
                             <ExtensionSlot name="header.right" className="flex items-center gap-2 mr-2" />
 
                             { }
-                            <div className="relative h-full flex items-center gap-2" ref={sessionsRef}>
-                                <button
-                                    onClick={() => setShowSessions(!showSessions)}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1a] border border-white/20 hover:bg-[#252525] rounded-full transition-all group shadow-lg"
+                            <div className="flex items-center gap-2 h-full">
+                                <div
+                                    className={`relative h-full flex items-center origin-right transition-[max-width,opacity,transform,margin] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDownloadsIndicatorVisible ? 'max-w-[8.5rem] opacity-100 translate-x-0 scale-100 mr-0' : 'max-w-0 opacity-0 translate-x-3 scale-95 mr-[-0.35rem] pointer-events-none'}`}
+                                    ref={downloadsRef}
                                 >
-                                    <div className={`w-1.5 h-1.5 rounded-full ${runningCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                                    <span className="text-[10px] font-bold text-gray-100">
-                                        {runningCount === 0 ? t('common.idle') : `${runningCount} ${t('common.running')}`}
-                                    </span>
-                                </button>
-
-                                {showSessions && (
-                                    <div className="absolute top-14 right-0 w-64 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 animate-in fade-in zoom-in duration-100 z-[100]">
-                                        {Object.keys(runningInstances).length === 0 ? (
-                                            <div className="px-4 py-2 text-xs text-gray-400 italic">No active sessions</div>
-                                        ) : (
-                                            Object.entries(runningInstances).map(([name, status]) => (
-                                                <div key={name} className="flex items-center justify-between px-4 py-2 hover:bg-white/5 group">
-                                                    <div className="flex items-center gap-2 overflow-hidden">
-                                                        <div className={`shrink-0 w-2 h-2 rounded-full ${status === 'running' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-                                                        <span className="text-sm font-medium truncate text-gray-200">{name}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button
-                                                            onClick={() => window.electronAPI.killGame(name)}
-                                                            className="p-1 hover:bg-red-500/20 text-red-500 rounded transition-colors"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="6" y="6" width="12" height="12" strokeWidth={2} /></svg>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
+                                    <div className="overflow-hidden">
+                                        <button
+                                            onClick={() => setShowDownloads(!showDownloads)}
+                                            className="relative hidden sm:flex items-center gap-2 whitespace-nowrap rounded-xl border border-white/5 bg-black/20 px-3 py-1.5 text-sm font-semibold text-gray-300 shadow-lg transition-all duration-500 ease-out hover:bg-black/40 hover:text-white pointer-events-auto"
+                                            aria-label={t('common.downloads')}
+                                            title={t('common.downloads')}
+                                        >
+                                            <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
+                                                <span
+                                                    className="absolute inset-y-0 left-0 rounded-xl bg-primary/15 transition-all duration-500 ease-out"
+                                                    style={{ width: `${visibleDownloadProgress}%` }}
+                                                />
+                                            </span>
+                                            <span className="relative flex h-5 w-5 items-center justify-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 transition-transform duration-500 ease-out" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                            </span>
+                                            <span className="relative flex min-w-[2.75rem] items-center justify-end gap-1">
+                                                <span className="tabular-nums">{visibleDownloadProgress}%</span>
+                                                {activeDownloadCount > 1 && (
+                                                    <span className="rounded-full bg-white/8 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">
+                                                        {activeDownloadCount}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </button>
                                     </div>
-                                )}
-                            </div>
 
-                            { }
-                            <div className="relative h-full flex items-center" ref={downloadsRef}>
-                                <button
-                                    onClick={() => setShowDownloads(!showDownloads)}
-                                    className={`p-1.5 rounded-lg transition-all relative ${isAnyActive ? 'text-primary bg-[#1a1a1a] border border-primary/50' : 'text-gray-200 hover:text-white bg-[#1a1a1a] border border-white/20'}`}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isAnyActive ? 'animate-bounce' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    {isAnyActive && (
-                                        <span className="absolute top-1 right-1 w-2 h-2 bg-primary border border-background rounded-full"></span>
-                                    )}
-                                </button>
-
-                                {showDownloads && (
-                                    <div className="absolute top-14 right-0 w-64 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-3 animate-in fade-in slide-in-from-top-2 duration-100 z-[100]">
-                                        <div className="px-4 pb-2 border-b border-white/5 mb-2">
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('common.downloads')}</span>
-                                        </div>
-                                        <div className="max-h-60 overflow-y-auto px-4 space-y-3">
-                                            {Object.keys(activeDownloads).length === 0 ? (
-                                                <div className="py-2 text-center text-xs text-gray-500">No active tasks</div>
-                                            ) : (
-                                                Object.entries(activeDownloads).map(([name, data]) => (
-                                                    <div key={name} className="space-y-1">
-                                                        <div className="flex justify-between items-center overflow-hidden">
-                                                            <span className="text-xs font-bold text-white truncate pr-2">{name}</span>
-                                                            <span className="text-[10px] font-mono text-primary">{data.progress}%</span>
+                                    {showDownloads && (
+                                        <div className="absolute top-14 right-0 w-64 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-3 animate-in fade-in slide-in-from-top-2 duration-100 z-[100]">
+                                            <div className="px-4 pb-2 border-b border-white/5 mb-2">
+                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('common.downloads')}</span>
+                                            </div>
+                                            <div className="max-h-60 overflow-y-auto px-4 space-y-3">
+                                                {Object.keys(activeDownloads).length === 0 ? (
+                                                    <div className="py-2 text-center text-xs text-gray-500">No active tasks</div>
+                                                ) : (
+                                                    Object.entries(activeDownloads).map(([name, data]) => (
+                                                        <div key={name} className="space-y-1">
+                                                            <div className="flex justify-between items-center overflow-hidden">
+                                                                <span className="text-xs font-bold text-white truncate pr-2">{name}</span>
+                                                                <span className="text-[10px] font-mono text-primary">{data.progress}%</span>
+                                                            </div>
+                                                            <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-primary transition-all duration-300" style={{ width: `${data.progress}%` }}></div>
+                                                            </div>
                                                         </div>
-                                                        <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                                                            <div className="h-full bg-primary transition-all duration-300" style={{ width: `${data.progress}%` }}></div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="relative h-full flex items-center gap-2" ref={sessionsRef}>
+                                    <button
+                                        onClick={() => setShowSessions(!showSessions)}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1a] border border-white/20 hover:bg-[#252525] rounded-full transition-all group shadow-lg"
+                                    >
+                                        <div className={`w-1.5 h-1.5 rounded-full ${runningCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                                        <span className="text-[10px] font-bold text-gray-100">
+                                            {runningCount === 0 ? t('common.idle') : `${runningCount} ${t('common.running')}`}
+                                        </span>
+                                    </button>
+
+                                    {showSessions && (
+                                        <div className="absolute top-14 right-0 w-64 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 animate-in fade-in zoom-in duration-100 z-[100]">
+                                            {Object.keys(runningInstances).length === 0 ? (
+                                                <div className="px-4 py-2 text-xs text-gray-400 italic">No active sessions</div>
+                                            ) : (
+                                                Object.entries(runningInstances).map(([name, status]) => (
+                                                    <div key={name} className="flex items-center justify-between px-4 py-2 hover:bg-white/5 group">
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            <div className={`shrink-0 w-2 h-2 rounded-full ${status === 'running' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                                                            <span className="text-sm font-medium truncate text-gray-200">{name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                onClick={() => window.electronAPI.killGame(name)}
+                                                                className="p-1 hover:bg-red-500/20 text-red-500 rounded transition-colors"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="6" y="6" width="12" height="12" strokeWidth={2} /></svg>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 ))
                                             )}
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
 
                             { }
