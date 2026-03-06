@@ -34,6 +34,7 @@
         "error_desc": "Aplikacja napotkała nieoczekiwany błąd. Możesz spróbować ją ponownie uruchomić.",
         "launcher": "Launcher",
         "server": "Serwer",
+        "client": "Klient",
         "new_instance": "Nowa instancja",
         "play": "Graj",
         "stop": "Zatrzymaj",

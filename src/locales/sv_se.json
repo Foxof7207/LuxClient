@@ -34,6 +34,7 @@
         "error_desc": "Ett oväntat fel uppstod i applikationen. Du kan försöka starta om den.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Klient",
         "new_instance": "Ny instans",
         "play": "Spela",
         "stop": "Stoppa",

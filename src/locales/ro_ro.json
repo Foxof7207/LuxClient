@@ -34,6 +34,7 @@
         "error_desc": "Aplicația a întâmpinat o eroare neașteptată. Poți încerca să o repornești.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Client",
         "new_instance": "Instanță Nouă",
         "play": "Joacă",
         "stop": "Oprește",

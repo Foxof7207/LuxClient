@@ -102,6 +102,7 @@ function App() {
     const [showDownloads, setShowDownloads] = useState(false);
     const [showSessions, setShowSessions] = useState(false);
     const [showModeMenu, setShowModeMenu] = useState(false);
+    const [modeMenuAnchor, setModeMenuAnchor] = useState('logo');
     const [searchCategory, setSearchCategory] = useState(null);
     const [triggerCreateInstance, setTriggerCreateInstance] = useState(false);
     const [appSettings, setAppSettings] = useState({});
@@ -115,6 +116,7 @@ function App() {
     const sessionsRef = useRef(null);
     const modeMenuRef = useRef(null);
     const logoRef = useRef(null);
+    const quickSwitchRef = useRef(null);
     const lastClientView = useRef('dashboard');
     const lastServerView = useRef('server-dashboard');
     const appSettingsRef = useRef({});
@@ -288,7 +290,8 @@ function App() {
                 setShowSessions(false);
             }
             if (modeMenuRef.current && !modeMenuRef.current.contains(event.target) &&
-                logoRef.current && !logoRef.current.contains(event.target)) {
+                logoRef.current && !logoRef.current.contains(event.target) &&
+                quickSwitchRef.current && !quickSwitchRef.current.contains(event.target)) {
                 setShowModeMenu(false);
             }
         };
@@ -492,13 +495,66 @@ function App() {
         setShowModeMenu(false);
     };
 
-    const toggleModeMenu = () => {
-        setShowModeMenu(!showModeMenu);
+    const toggleModeMenu = (anchor) => {
+        setModeMenuAnchor(anchor);
+        setShowModeMenu(prev => anchor === modeMenuAnchor ? !prev : true);
     };
 
     const activeDownloadCount = Object.keys(activeDownloads).length;
     const runningCount = Object.keys(runningInstances).filter(k => runningInstances[k] === 'running').length;
     const isAnyActive = activeDownloadCount > 0;
+    const isClientPageEnabled = isFeatureEnabled('openClientPage');
+    const renderModeMenu = (positionClassName) => (
+        <div
+            ref={modeMenuRef}
+            className={`${positionClassName} w-48 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 animate-in fade-in slide-in-from-top-2 duration-100 z-[100]`}
+        >
+            <button
+                onClick={() => handleModeSelect('launcher')}
+                className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'launcher' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                <span className="font-medium">{t('common.launcher')}</span>
+                {currentMode === 'launcher' && (
+                    <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                )}
+            </button>
+            <button
+                onClick={() => handleModeSelect('server')}
+                className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'server' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+                <span className="font-medium">{t('common.server')}</span>
+                {currentMode === 'server' && (
+                    <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                )}
+            </button>
+            {isClientPageEnabled && (
+                <button
+                    onClick={() => handleModeSelect('client')}
+                    className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'client' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
+                    </svg>
+                    <span className="font-medium">{t('common.client', 'Client')}</span>
+                    {currentMode === 'client' && (
+                        <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                    )}
+                </button>
+            )}
+        </div>
+    );
 
     return (
         <ExtensionProvider>
@@ -554,61 +610,36 @@ function App() {
                         <div className="flex items-center gap-2 drag no-drag">
                             <div className="relative" ref={logoRef}>
                                 <div
-                                    onClick={toggleModeMenu}
+                                    onClick={() => toggleModeMenu('logo')}
                                     className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center text-primary font-bold text-2xl hover:bg-primary/30 transition-colors cursor-pointer pointer-events-auto shadow-lg border border-primary/20"
                                 >
                                     M
                                 </div>
 
-                                {showModeMenu && (
-                                    <div
-                                        ref={modeMenuRef}
-                                        className="absolute top-14 left-0 w-48 bg-[#0d0d0d] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 animate-in fade-in slide-in-from-top-2 duration-100 z-[100]"
-                                    >
-                                        <button
-                                            onClick={() => handleModeSelect('launcher')}
-                                            className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'launcher' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                            </svg>
-                                            <span className="font-medium">{t('common.launcher')}</span>
-                                            {currentMode === 'launcher' && (
-                                                <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                </svg>
-                                            )}
-                                        </button>
-                                        <button
-                                            onClick={() => handleModeSelect('server')}
-                                            className={`w-full px-4 py-3 text-left hover:bg-white/5 transition-colors flex items-center gap-3 ${currentMode === 'server' ? 'bg-primary/10 text-primary' : 'text-gray-200'}`}
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                                            </svg>
-                                            <span className="font-medium">{t('common.server')}</span>
-                                            {currentMode === 'server' && (
-                                                <svg className="h-4 w-4 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                </svg>
-                                            )}
-                                        </button>
-                                        { }
-                                    </div>
-                                )}
+                                {showModeMenu && modeMenuAnchor === 'logo' && renderModeMenu('absolute top-14 left-0')}
                             </div>
 
-                            {appSettings.showQuickSwitchButton !== false && currentMode !== 'client' && (
+                            {appSettings.showQuickSwitchButton !== false && (
                                 <>
-                                    <button
-                                        onClick={() => handleModeSelect(currentMode === 'launcher' ? 'server' : 'launcher')}
-                                        className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 ml-2 pointer-events-auto shadow-lg"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                                        </svg>
-                                        {currentMode === 'launcher' ? t('common.switch_to_server', 'Switch to Server') : t('common.switch_to_client', 'Switch to Client')}
-                                    </button>
+                                    <div className="relative" ref={quickSwitchRef}>
+                                        <button
+                                            onClick={() => toggleModeMenu('quick')}
+                                            className="px-3 py-1.5 bg-black/20 hover:bg-black/40 rounded-xl text-sm font-semibold text-gray-300 hover:text-white transition-colors border border-white/5 whitespace-nowrap hidden sm:flex items-center gap-2 ml-2 pointer-events-auto shadow-lg"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                            </svg>
+                                            <span>
+                                                {currentMode === 'launcher' && t('common.launcher')}
+                                                {currentMode === 'server' && t('common.server')}
+                                                {currentMode === 'client' && t('common.client', 'Client')}
+                                            </span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${showModeMenu && modeMenuAnchor === 'quick' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </button>
+                                        {showModeMenu && modeMenuAnchor === 'quick' && renderModeMenu('absolute top-12 left-0')}
+                                    </div>
 
                                     <button
                                         onClick={() => setCurrentView('news')}
@@ -635,30 +666,6 @@ function App() {
 
                             { }
                             <div className="relative h-full flex items-center gap-2" ref={sessionsRef}>
-                                {isFeatureEnabled('openClientPage') && currentMode === 'launcher' && (
-                                    <button
-                                        onClick={() => handleModeSelect('client')}
-                                        className="px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors border whitespace-nowrap hidden sm:flex items-center gap-2 shadow-lg bg-[#1a1a1a] border-white/20 text-gray-100 hover:bg-[#252525] hover:text-white"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
-                                        </svg>
-                                        {t('common.open_client', 'Open Client')}
-                                    </button>
-                                )}
-
-                                {isFeatureEnabled('openClientPage') && currentMode === 'client' && (
-                                    <button
-                                        onClick={() => handleModeSelect('launcher')}
-                                        className="px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors border whitespace-nowrap hidden sm:flex items-center gap-2 shadow-lg bg-primary/20 border-primary/40 text-primary hover:bg-primary/30"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 12H5m0 0l4-4m-4 4l4 4" />
-                                        </svg>
-                                        {t('common.open_launcher', 'Open Launcher')}
-                                    </button>
-                                )}
-
                                 <button
                                     onClick={() => setShowSessions(!showSessions)}
                                     className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1a] border border-white/20 hover:bg-[#252525] rounded-full transition-all group shadow-lg"

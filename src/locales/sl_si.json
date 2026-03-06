@@ -34,6 +34,7 @@
         "error_desc": "Aplikacija je naletela na nepričakovano napako. Lahko jo poskusite znova zagnati.",
         "launcher": "Launcher",
         "server": "Strežnik",
+        "client": "Odjemalec",
         "new_instance": "Nova instanca",
         "play": "Igraj",
         "stop": "Ustavi",

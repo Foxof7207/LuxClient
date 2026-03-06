@@ -34,6 +34,7 @@
         "error_desc": "Aplikácia narazila na neočakávanú chybu. Môžete ju skúsiť reštartovať.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Klient",
         "new_instance": "Nová inštancia",
         "play": "Hrať",
         "stop": "Zastaviť",

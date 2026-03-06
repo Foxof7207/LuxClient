@@ -34,6 +34,7 @@
         "error_desc": "L'applicazione ha riscontrato un errore imprevisto. Puoi provare a riavviarla.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Client",
         "new_instance": "Nuova Istanza",
         "play": "Gioca",
         "stop": "Ferma",

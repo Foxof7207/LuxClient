@@ -34,6 +34,7 @@
         "error_desc": "L'application a rencontré une erreur inattendue. Vous pouvez essayer de la redémarrer.",
         "launcher": "Launcher",
         "server": "Serveur",
+        "client": "Client",
         "new_instance": "Nouvelle instance",
         "play": "Jouer",
         "stop": "Arrêter",

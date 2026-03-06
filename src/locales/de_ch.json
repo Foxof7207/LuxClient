@@ -34,6 +34,7 @@
         "error_desc": "D'App hät en unerwartete Fehler gha. Probier sie neu z'starte.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Client",
         "new_instance": "Neui Instanz",
         "play": "Spiele",
         "stop": "Stoppe",

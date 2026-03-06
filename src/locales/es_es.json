@@ -34,6 +34,7 @@
         "error_desc": "Ocurrió un error inesperado. Prueba a reiniciar la app.",
         "launcher": "Launcher",
         "server": "Servidor",
+        "client": "Cliente",
         "new_instance": "Nueva instancia",
         "play": "Jugar",
         "stop": "Detener",

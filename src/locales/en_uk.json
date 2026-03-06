@@ -34,6 +34,7 @@
         "error_desc": "Something went wrong. Try restarting the app.",
         "launcher": "Launcher",
         "server": "Server",
+        "client": "Client",
         "new_instance": "New instance",
         "play": "Play",
         "stop": "Stop",
