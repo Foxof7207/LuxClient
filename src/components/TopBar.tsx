@@ -16,7 +16,7 @@ import {
 } from './ui/dropdown-menu';
 import {
   Search, ChevronDown, ArrowRightLeft, Newspaper,
-  Download, Activity, Square, UserPlus, Trash2, LogOut, Zap
+  Download, Gamepad2, Square, UserPlus, Trash2, LogOut, Zap
 } from 'lucide-react';
 
 function TopBar({
@@ -60,7 +60,7 @@ function TopBar({
           onProfileUpdate({ ...userProfile, skinUrl: res.url });
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const loadAccounts = async () => {
@@ -108,12 +108,6 @@ function TopBar({
   const activeDownloadCount = activeDownloadEntries.length;
   const isClientPageEnabled = isFeatureEnabled('openClientPage');
 
-  const modeLabel = {
-    launcher: t('common.launcher'),
-    server: t('common.server'),
-    client: t('common.client', 'Client')
-  };
-
   return (
     <div className="h-12 w-full titlebar flex items-center justify-between px-4 border-b border-border bg-background/80 backdrop-blur-md flex-none relative z-[60]">
       <div className="flex items-center gap-2 no-drag">
@@ -123,28 +117,15 @@ function TopBar({
 
         {appSettings?.showQuickSwitchButton !== false && (
           <>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2 text-xs font-semibold text-muted-foreground h-8">
-                  <ArrowRightLeft className="h-3.5 w-3.5" />
-                  {modeLabel[currentMode]}
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                <DropdownMenuItem onClick={() => onModeSelect('launcher')} className={cn(currentMode === 'launcher' && 'text-primary')}>
-                  {t('common.launcher')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onModeSelect('server')} className={cn(currentMode === 'server' && 'text-primary')}>
-                  {t('common.server')}
-                </DropdownMenuItem>
-                {isClientPageEnabled && (
-                  <DropdownMenuItem onClick={() => onModeSelect('client')} className={cn(currentMode === 'client' && 'text-primary')}>
-                    {t('common.client', 'Client')}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-xs font-semibold text-muted-foreground h-8"
+              onClick={() => onModeSelect(currentMode === 'launcher' ? 'server' : 'launcher')}
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              {currentMode === 'launcher' ? t('common.switch_to_server') : t('common.switch_to_client')}
+            </Button>
 
             <Button
               variant="ghost"
@@ -208,6 +189,18 @@ function TopBar({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {isClientPageEnabled && (
+          <Button
+            variant={currentMode === 'client' ? 'default' : 'ghost'}
+            size="sm"
+            className="gap-2 h-8 text-xs"
+            onClick={() => onModeSelect('client')}
+          >
+            <Gamepad2 className="h-3.5 w-3.5" />
+            {t('client_page.title', 'Open Client')}
+          </Button>
         )}
 
         <Button
