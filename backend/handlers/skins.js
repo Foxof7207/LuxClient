@@ -1,4 +1,4 @@
-const { app, ipcMain, shell, dialog } = require('electron');
+const { app, dialog, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const axios = require('axios');
@@ -28,6 +28,137 @@ module.exports = (ipcMain, mainWindow) => {
         } catch (e) {
             console.error('Failed to save skin manifest', e);
         }
+    }
+
+    function sanitizeSkinName(name, fallback = 'Skin') {
+        const trimmed = `${name || ''}`.trim();
+        return trimmed || fallback;
+    }
+
+    function sanitizeFileName(name, fallback = 'skin') {
+        const sanitized = sanitizeSkinName(name, fallback).replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim();
+        return sanitized || fallback;
+    }
+
+    function getSkinNameFromUrl(skinUrl) {
+        try {
+            const parsedUrl = new URL(skinUrl);
+            const fileName = path.basename(parsedUrl.pathname, path.extname(parsedUrl.pathname));
+            if (fileName) {
+                return decodeURIComponent(fileName);
+            }
+            return parsedUrl.hostname.replace(/^www\./, '');
+        } catch (e) {
+            return 'Downloaded Skin';
+        }
+    }
+
+    async function validateSkinBuffer(fileBuffer) {
+        const image = nativeImage.createFromBuffer(fileBuffer);
+        const size = image.getSize();
+        if (!((size.width === 64 && size.height === 64) || (size.width === 64 && size.height === 32))) {
+            throw new Error(`Invalid skin dimensions: ${size.width}x${size.height}. Must be 64x64 or 64x32.`);
+        }
+    }
+
+    async function saveSkinBuffer(fileBuffer, name, extraData = {}) {
+        await validateSkinBuffer(fileBuffer);
+
+        const hash = crypto.createHash('sha1').update(fileBuffer).digest('hex');
+        const destPath = path.join(skinsDir, `${hash}.png`);
+
+        await fs.writeFile(destPath, fileBuffer);
+
+        const manifest = await getSkinManifest();
+        let skin = manifest.skins.find(s => s.id === hash);
+        let changed = false;
+
+        if (!skin) {
+            skin = {
+                id: hash,
+                path: destPath,
+                added: Date.now(),
+                name: sanitizeSkinName(name),
+                ...extraData
+            };
+            manifest.skins.push(skin);
+            changed = true;
+        } else {
+            if (skin.path !== destPath) {
+                skin.path = destPath;
+                changed = true;
+            }
+            if (!skin.name) {
+                skin.name = sanitizeSkinName(name);
+                changed = true;
+            }
+            if (extraData.model && skin.model !== extraData.model) {
+                skin.model = extraData.model;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            await saveSkinManifest(manifest);
+        }
+
+        return {
+            success: true,
+            skin: {
+                ...skin,
+                data: `data:image/png;base64,${fileBuffer.toString('base64')}`
+            }
+        };
+    }
+
+    async function fetchSkinBuffer(skinUrl) {
+        const response = await axios.get(skinUrl, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+            maxContentLength: 5 * 1024 * 1024
+        });
+        return Buffer.from(response.data);
+    }
+
+    async function resolveSkinFromUsername(username) {
+        const trimmedUsername = `${username || ''}`.trim();
+        if (!trimmedUsername) {
+            throw new Error('No username provided');
+        }
+
+        const profileResponse = await axios.get(
+            `https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(trimmedUsername)}`,
+            {
+                timeout: 30000,
+                validateStatus: status => status === 200 || status === 204
+            }
+        );
+
+        if (profileResponse.status === 204 || !profileResponse.data?.id) {
+            throw new Error('Minecraft username not found');
+        }
+
+        const sessionResponse = await axios.get(
+            `https://sessionserver.mojang.com/session/minecraft/profile/${profileResponse.data.id}`,
+            { timeout: 30000 }
+        );
+
+        const textureProperty = (sessionResponse.data?.properties || []).find(property => property.name === 'textures');
+        if (!textureProperty?.value) {
+            throw new Error('No skin data found for username');
+        }
+
+        const decodedTextures = JSON.parse(Buffer.from(textureProperty.value, 'base64').toString('utf8'));
+        const skinUrl = decodedTextures?.textures?.SKIN?.url;
+        if (!skinUrl) {
+            throw new Error('No skin data found for username');
+        }
+
+        return {
+            name: profileResponse.data.name || trimmedUsername,
+            skinUrl,
+            model: decodedTextures?.textures?.SKIN?.metadata?.model === 'slim' ? 'slim' : 'classic'
+        };
     }
     ipcMain.handle('skin:get-current', async (_, token) => {
         try {
@@ -87,26 +218,15 @@ module.exports = (ipcMain, mainWindow) => {
         try {
             if (!token) return { success: false, error: 'No token provided' };
             if (!skinUrl) return { success: false, error: 'No URL provided' };
-            const tempPath = path.join(app.getPath('temp'), `skin-${Date.now()}.png`);
-            const writer = fs.createWriteStream(tempPath);
-
-            const response = await axios({
-                url: skinUrl,
-                method: 'GET',
-                responseType: 'stream',
-                timeout: 30000
-            });
-
-            response.data.pipe(writer);
-
-            await new Promise((resolve, reject) => {
-                writer.on('finish', resolve);
-                writer.on('error', reject);
-            });
+            const skinBuffer = await fetchSkinBuffer(skinUrl);
+            await validateSkinBuffer(skinBuffer);
             const FormData = require('form-data');
             const form = new FormData();
             form.append('variant', variant);
-            form.append('file', fs.createReadStream(tempPath));
+            form.append('file', skinBuffer, {
+                filename: 'skin.png',
+                contentType: 'image/png'
+            });
 
             await axios.post('https://api.minecraftservices.com/minecraft/profile/skins', form, {
                 headers: {
@@ -114,7 +234,6 @@ module.exports = (ipcMain, mainWindow) => {
                     ...form.getHeaders()
                 }
             });
-            fs.remove(tempPath).catch(console.error);
 
             const { clearCache } = require('../utils/profileCache');
             clearCache(token);
@@ -154,6 +273,33 @@ module.exports = (ipcMain, mainWindow) => {
     });
     ipcMain.handle('skin:save-local', async (_, filePath) => {
         try {
+            if (filePath && typeof filePath === 'object' && !Buffer.isBuffer(filePath)) {
+                const source = `${filePath.source || ''}`.trim();
+                const value = `${filePath.value || ''}`.trim();
+
+                if (source === 'url') {
+                    if (!value) return { success: false, error: 'No URL provided' };
+                    const fileBuffer = await fetchSkinBuffer(value);
+                    return await saveSkinBuffer(fileBuffer, getSkinNameFromUrl(value));
+                }
+
+                if (source === 'username') {
+                    if (!value) return { success: false, error: 'No username provided' };
+                    const resolvedSkin = await resolveSkinFromUsername(value);
+                    const fileBuffer = await fetchSkinBuffer(resolvedSkin.skinUrl);
+                    return await saveSkinBuffer(fileBuffer, resolvedSkin.name, { model: resolvedSkin.model });
+                }
+
+                if (source) {
+                    return { success: false, error: `Unsupported skin source: ${source}` };
+                }
+
+                return { success: false, error: 'Invalid skin import payload' };
+            }
+
+            if (filePath && typeof filePath !== 'string') {
+                return { success: false, error: 'Invalid skin file path' };
+            }
 
             let sourcePath = filePath;
             if (!sourcePath) {
@@ -165,33 +311,30 @@ module.exports = (ipcMain, mainWindow) => {
                 sourcePath = filePaths[0];
             }
             const fileBuffer = await fs.readFile(sourcePath);
-            const { nativeImage } = require('electron');
-            const img = nativeImage.createFromBuffer(fileBuffer);
-            const size = img.getSize();
-            if (!((size.width === 64 && size.height === 64) || (size.width === 64 && size.height === 32))) {
-                return { success: false, error: `Invalid skin dimensions: ${size.width}x${size.height}. Must be 64x64 or 64x32.` };
-            }
-
-            const hash = crypto.createHash('sha1').update(fileBuffer).digest('hex');
-            const destPath = path.join(skinsDir, `${hash}.png`);
-
-            await fs.copy(sourcePath, destPath);
-            const manifest = await getSkinManifest();
-
-            if (!manifest.skins.find(s => s.id === hash)) {
-                manifest.skins.push({
-                    id: hash,
-                    path: destPath,
-                    added: Date.now(),
-                    name: path.basename(sourcePath, path.extname(sourcePath))
-                });
-                await saveSkinManifest(manifest);
-            }
-            const base64 = `data:image/png;base64,${fileBuffer.toString('base64')}`;
-            return { success: true, skin: { id: hash, path: destPath, name: manifest.skins.find(s => s.id === hash).name, data: base64 } };
+            return await saveSkinBuffer(fileBuffer, path.basename(sourcePath, path.extname(sourcePath)));
         } catch (e) {
             console.error('Failed to save local skin:', e);
             return { success: false, error: e.message };
+        }
+    });
+    ipcMain.handle('skin:save-local-from-url', async (_, skinUrl) => {
+        try {
+            if (!skinUrl) return { success: false, error: 'No URL provided' };
+            const fileBuffer = await fetchSkinBuffer(skinUrl);
+            return await saveSkinBuffer(fileBuffer, getSkinNameFromUrl(skinUrl));
+        } catch (e) {
+            console.error('Failed to save local skin from URL:', e.response?.data || e.message);
+            return { success: false, error: e.response?.data?.errorMessage || e.message };
+        }
+    });
+    ipcMain.handle('skin:save-local-from-username', async (_, username) => {
+        try {
+            const resolvedSkin = await resolveSkinFromUsername(username);
+            const fileBuffer = await fetchSkinBuffer(resolvedSkin.skinUrl);
+            return await saveSkinBuffer(fileBuffer, resolvedSkin.name, { model: resolvedSkin.model });
+        } catch (e) {
+            console.error('Failed to save local skin from username:', e.response?.data || e.message);
+            return { success: false, error: e.response?.data?.errorMessage || e.message };
         }
     });
     ipcMain.handle('skin:get-local', async () => {
@@ -235,6 +378,36 @@ module.exports = (ipcMain, mainWindow) => {
             }
             return { success: true };
         } catch (e) {
+            return { success: false, error: e.message };
+        }
+    });
+    ipcMain.handle('skin:export-local', async (_, id) => {
+        try {
+            const manifest = await getSkinManifest();
+            const skin = manifest.skins.find(s => s.id === id);
+            if (!skin) {
+                return { success: false, error: 'Skin not found' };
+            }
+            if (!await fs.pathExists(skin.path)) {
+                return { success: false, error: 'Skin file not found' };
+            }
+
+            const downloadsDir = app.getPath('downloads');
+            const baseName = sanitizeFileName(skin.name);
+            let fileName = `${baseName}.png`;
+            let destinationPath = path.join(downloadsDir, fileName);
+            let duplicateIndex = 1;
+
+            while (await fs.pathExists(destinationPath)) {
+                fileName = `${baseName} (${duplicateIndex}).png`;
+                destinationPath = path.join(downloadsDir, fileName);
+                duplicateIndex += 1;
+            }
+
+            await fs.copy(skin.path, destinationPath, { overwrite: false, errorOnExist: true });
+            return { success: true, path: destinationPath };
+        } catch (e) {
+            console.error('Failed to export local skin:', e);
             return { success: false, error: e.message };
         }
     });

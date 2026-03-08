@@ -6,11 +6,27 @@ import PageContent from '../components/layout/PageContent';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '../components/ui/context-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { Separator } from '../components/ui/separator';
-import { Skeleton } from '../components/ui/skeleton';
-import { Plus, Trash2, Pencil, Pause, Play, X, AlertTriangle, Loader2, User, Shirt, Crown } from 'lucide-react';
+import { Plus, Trash2, Pencil, Pause, Play, X, AlertTriangle, Loader2, User, Crown, ImageUp, Link2, Download } from 'lucide-react';
+
+const DEFAULT_SKINS = [
+    { name: 'Steve', defaultModel: 'classic', urls: { classic: '/assets/skins/steve-classic.png', slim: '/assets/skins/steve-slim.png' } },
+    { name: 'Alex', defaultModel: 'slim', urls: { classic: '/assets/skins/alex-classic.png', slim: '/assets/skins/alex-slim.png' } },
+    { name: 'Ari', defaultModel: 'slim', urls: { classic: '/assets/skins/ari-classic.png', slim: '/assets/skins/ari-slim.png' } },
+    { name: 'Efe', defaultModel: 'classic', urls: { classic: '/assets/skins/efe-classic.png', slim: '/assets/skins/efe-slim.png' } },
+    { name: 'Kai', defaultModel: 'slim', urls: { classic: '/assets/skins/kai-classic.png', slim: '/assets/skins/kai-slim.png' } },
+    { name: 'Makena', defaultModel: 'slim', urls: { classic: '/assets/skins/makena-classic.png', slim: '/assets/skins/makena-slim.png' } },
+    { name: 'Noor', defaultModel: 'classic', urls: { classic: '/assets/skins/noor-classic.png', slim: '/assets/skins/noor-slim.png' } },
+    { name: 'Sunny', defaultModel: 'classic', urls: { classic: '/assets/skins/sunny-classic.png', slim: '/assets/skins/sunny-slim.png' } },
+    { name: 'Zuri', defaultModel: 'classic', urls: { classic: '/assets/skins/zuri-classic.png', slim: '/assets/skins/zuri-slim.png' } }
+];
+
+const getDefaultSkinUrl = (skin, model) => skin.urls[model === 'slim' ? 'slim' : 'classic'];
 
 const SkinPreview3D = ({ src, className, model = 'classic' }: { src?: any; className?: string; model?: string }) => {
     const canvasRef = useRef(null);
@@ -185,6 +201,11 @@ function Skins({ onLogout, onProfileUpdate }) {
     const [activeCapeId, setActiveCapeId] = useState(null);
     const [originalVariant, setOriginalVariant] = useState('classic');
     const [showCapeModal, setShowCapeModal] = useState(false);
+    const [showAddSkinModal, setShowAddSkinModal] = useState(false);
+    const [addSkinSource, setAddSkinSource] = useState('file');
+    const [skinUrlInput, setSkinUrlInput] = useState('');
+    const [skinUsernameInput, setSkinUsernameInput] = useState('');
+    const [isImportingSkin, setIsImportingSkin] = useState(false);
     const [webglError, setWebglError] = useState(false);
 
     const isWebGLSupported = () => {
@@ -225,6 +246,13 @@ function Skins({ onLogout, onProfileUpdate }) {
             viewer.renderer.setPixelRatio(window.devicePixelRatio);
 
             skinViewerRef.current = viewer;
+            viewer.controls.enableZoom = false;
+            viewer.controls.minPolarAngle = Math.PI / 2;
+            viewer.controls.maxPolarAngle = Math.PI / 2;
+            if (viewer.controls.setAzimuthalAngle) {
+                viewer.controls.setAzimuthalAngle(0.5);
+                viewer.controls.update();
+            }
 
             const resizeObserver = new ResizeObserver(entries => {
                 for (let entry of entries) {
@@ -288,6 +316,13 @@ function Skins({ onLogout, onProfileUpdate }) {
             console.error("Failed to update skin viewer", e);
         }
     }
+
+    const getPendingPreviewUrl = (model = variant) => {
+        if (pendingSkin?.type === 'default') {
+            return getDefaultSkinUrl(pendingSkin, model);
+        }
+        return pendingSkin?.url || pendingSkin?.data || currentSkinUrl;
+    };
 
     const loadProfileAndSkin = async () => {
         setIsLoading(true);
@@ -355,38 +390,99 @@ function Skins({ onLogout, onProfileUpdate }) {
         }
     };
 
-    const handleImportSkin = async () => {
+    const resetAddSkinForm = () => {
+        setAddSkinSource('file');
+        setSkinUrlInput('');
+        setSkinUsernameInput('');
+        setIsImportingSkin(false);
+    };
+
+    const handleAddSkinModalChange = (open) => {
+        setShowAddSkinModal(open);
+        if (!open) {
+            resetAddSkinForm();
+        }
+    };
+
+    const handleImportResult = async (res) => {
+        if (res.success) {
+            addNotification(t('skins.import_success'), 'success');
+            await loadLocalSkins();
+
+            if (res.skin) {
+                setPendingSkin({ type: 'local', ...res.skin });
+                const nextVariant = res.skin.model || variant;
+                if (res.skin.model) {
+                    setVariant(res.skin.model);
+                }
+                if (res.skin.data) {
+                    await updateSkinInViewer(res.skin.data, nextVariant);
+                }
+            }
+
+            handleAddSkinModalChange(false);
+        } else if (res.error !== 'Cancelled') {
+            addNotification(t('skins.import_failed', { error: res.error }), 'error');
+        }
+    };
+
+    const handleImportSkinFromFile = async () => {
         if (!window.electronAPI?.saveLocalSkin) return;
         try {
+            setIsImportingSkin(true);
             const res = await window.electronAPI.saveLocalSkin();
-            if (res.success) {
-                addNotification(t('skins.import_success'), 'success');
-                loadLocalSkins();
-            } else if (res.error !== 'Cancelled') {
-                addNotification(t('skins.import_failed', { error: res.error }), 'error');
-            }
+            await handleImportResult(res);
         } catch (e) {
             console.error("Import failed", e);
+        } finally {
+            setIsImportingSkin(false);
+        }
+    };
+
+    const handleImportSkinFromUrl = async () => {
+        if (!window.electronAPI?.saveLocalSkinFromUrl || !skinUrlInput.trim()) return;
+        try {
+            setIsImportingSkin(true);
+            const res = await window.electronAPI.saveLocalSkinFromUrl(skinUrlInput.trim());
+            await handleImportResult(res);
+        } catch (e) {
+            console.error("Import from URL failed", e);
+            addNotification(t('skins.import_failed', { error: e.message }), 'error');
+        } finally {
+            setIsImportingSkin(false);
+        }
+    };
+
+    const handleImportSkinFromUsername = async () => {
+        if (!window.electronAPI?.saveLocalSkinFromUsername || !skinUsernameInput.trim()) return;
+        try {
+            setIsImportingSkin(true);
+            const res = await window.electronAPI.saveLocalSkinFromUsername(skinUsernameInput.trim());
+            await handleImportResult(res);
+        } catch (e) {
+            console.error("Import from username failed", e);
+            addNotification(t('skins.import_failed', { error: e.message }), 'error');
+        } finally {
+            setIsImportingSkin(false);
         }
     };
 
     const handleSelectLocalSkin = async (skin) => {
         setPendingSkin({ type: 'local', ...skin });
+        const nextVariant = skin.model || variant;
+        if (skin.model) {
+            setVariant(skin.model);
+        }
         if (skin.data) {
-            await updateSkinInViewer(skin.data, variant);
+            await updateSkinInViewer(skin.data, nextVariant);
         }
     };
 
-    const handleSelectDefaultSkin = async (name) => {
-        const url = name === 'Steve'
-            ? "https://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b"
-            : "https://textures.minecraft.net/texture/3b60a1f6d562f52aaebbf1434f1de147933a3affe0e764fa49ea057536623cd3";
-        const model = name === 'Steve' ? 'classic' : 'slim';
+    const handleSelectDefaultSkin = async (skin) => {
+        setPendingSkin({ type: 'default', ...skin });
+        setVariant(skin.defaultModel);
 
-        setPendingSkin({ type: 'url', url, model, name });
-        setVariant(model);
-
-        await updateSkinInViewer(url, model);
+        await updateSkinInViewer(getDefaultSkinUrl(skin, skin.defaultModel), skin.defaultModel);
     };
 
     const handleApplySkin = async () => {
@@ -405,6 +501,8 @@ function Skins({ onLogout, onProfileUpdate }) {
                     res = await window.electronAPI.uploadSkin(userProfile.access_token, pendingSkin.path, variant);
                 } else if (pendingSkin.type === 'url') {
                     res = await window.electronAPI.uploadSkinFromUrl(userProfile.access_token, pendingSkin.url, variant);
+                } else if (pendingSkin.type === 'default') {
+                    res = await window.electronAPI.uploadSkinFromUrl(userProfile.access_token, getDefaultSkinUrl(pendingSkin, variant), variant);
                 }
             } else if (variant !== originalVariant && currentSkinUrl) {
                 res = await window.electronAPI.uploadSkinFromUrl(userProfile.access_token, currentSkinUrl, variant);
@@ -445,8 +543,16 @@ function Skins({ onLogout, onProfileUpdate }) {
         }
     };
 
-    const handleDeleteSkin = async (e, id) => {
-        e.stopPropagation();
+    const handleDownloadSkin = async (skin) => {
+        const res = await window.electronAPI.exportLocalSkin(skin.id);
+        if (res.success) {
+            addNotification(t('skins.download_success'), 'success');
+        } else {
+            addNotification(t('skins.download_failed', { error: res.error }), 'error');
+        }
+    };
+
+    const handleDeleteSkin = async (id) => {
         const res = await window.electronAPI.deleteLocalSkin(id);
         if (res.success) {
             addNotification(t('skins.delete_success'), 'info');
@@ -515,21 +621,91 @@ function Skins({ onLogout, onProfileUpdate }) {
                         </div>
                     </DialogContent>
                 </Dialog>
+                <Dialog open={showAddSkinModal} onOpenChange={handleAddSkinModalChange}>
+                    <DialogContent className="max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>{t('skins.add_skin')}</DialogTitle>
+                        </DialogHeader>
+                        <Tabs value={addSkinSource} onValueChange={setAddSkinSource} className="space-y-4">
+                            <TabsList className="grid w-full grid-cols-3">
+                                <TabsTrigger value="file">{t('skins.source_file')}</TabsTrigger>
+                                <TabsTrigger value="url">{t('skins.source_url')}</TabsTrigger>
+                                <TabsTrigger value="username">{t('skins.source_username')}</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="file" className="mt-0 space-y-4">
+                                <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                                    {t('skins.source_file_desc')}
+                                </div>
+                                <Button onClick={handleImportSkinFromFile} disabled={isImportingSkin} className="w-full">
+                                    {isImportingSkin ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUp className="h-4 w-4" />}
+                                    {t('skins.choose_skin_file')}
+                                </Button>
+                            </TabsContent>
+
+                            <TabsContent value="url" className="mt-0 space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="skin-url-input">{t('skins.skin_url_label')}</Label>
+                                    <Input
+                                        id="skin-url-input"
+                                        value={skinUrlInput}
+                                        onChange={(e) => setSkinUrlInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                handleImportSkinFromUrl();
+                                            }
+                                        }}
+                                        placeholder={t('skins.skin_url_placeholder')}
+                                        disabled={isImportingSkin}
+                                    />
+                                </div>
+                                <Button onClick={handleImportSkinFromUrl} disabled={isImportingSkin || !skinUrlInput.trim()} className="w-full">
+                                    {isImportingSkin ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                                    {t('skins.import_from_url')}
+                                </Button>
+                            </TabsContent>
+
+                            <TabsContent value="username" className="mt-0 space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="skin-username-input">{t('skins.username_label')}</Label>
+                                    <Input
+                                        id="skin-username-input"
+                                        value={skinUsernameInput}
+                                        onChange={(e) => setSkinUsernameInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                handleImportSkinFromUsername();
+                                            }
+                                        }}
+                                        placeholder={t('skins.username_placeholder')}
+                                        disabled={isImportingSkin}
+                                    />
+                                </div>
+                                <Button onClick={handleImportSkinFromUsername} disabled={isImportingSkin || !skinUsernameInput.trim()} className="w-full">
+                                    {isImportingSkin ? <Loader2 className="h-4 w-4 animate-spin" /> : <User className="h-4 w-4" />}
+                                    {t('skins.fetch_from_username')}
+                                </Button>
+                            </TabsContent>
+                        </Tabs>
+                    </DialogContent>
+                </Dialog>
 
                 <div className="w-1/3 min-w-[300px] bg-card/50 backdrop-blur-sm border-r border-border flex flex-col items-center justify-center relative p-6">
-                    <div className="absolute top-4 left-4">
-                        <Badge variant="secondary" className="uppercase tracking-wider text-[10px]">
-                            {t('common.beta')}
-                        </Badge>
-                    </div>
-
-                    <div className="absolute top-4 right-4">
-                        <span className="text-sm font-semibold text-foreground">
-                            {userProfile?.name || t('skins.guest')}
-                        </span>
-                    </div>
-
                     <div className={`relative w-full h-[400px] flex items-center justify-center transition-opacity duration-300 ${isSkinLoaded || webglError ? 'opacity-100' : 'opacity-0'}`}>
+                        <div className="pointer-events-none absolute left-1/2 -top-7 z-10 -translate-x-1/2">
+                            <div
+                                className="px-3 py-1 text-center text-white"
+                                style={{
+                                    fontFamily: "'Minecraft', monospace",
+                                    fontSize: '24px',
+                                    lineHeight: 1,
+                                    imageRendering: 'pixelated',
+                                    backgroundColor: 'rgba(0, 0, 0, 0.32)'
+                                }}
+                            >
+                                {userProfile?.name || t('skins.guest')}
+                            </div>
+                        </div>
                         {webglError ? (
                             <div className="flex flex-col items-center justify-center p-6 text-center">
                                 <div className="w-12 h-12 bg-destructive/15 text-destructive rounded-xl flex items-center justify-center mb-4">
@@ -576,7 +752,7 @@ function Skins({ onLogout, onProfileUpdate }) {
                                 const newVariant = variant === 'classic' ? 'slim' : 'classic';
                                 setVariant(newVariant);
 
-                                const url = pendingSkin?.url || pendingSkin?.data || currentSkinUrl;
+                                const url = getPendingPreviewUrl(newVariant);
                                 if (skinViewerRef.current && url) {
                                     updateSkinInViewer(url, newVariant);
                                 }
@@ -630,7 +806,7 @@ function Skins({ onLogout, onProfileUpdate }) {
                             <h3 className="text-sm font-medium text-muted-foreground mb-3">{t('skins.saved_skins')}</h3>
                             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                                 <div
-                                    onClick={handleImportSkin}
+                                    onClick={() => handleAddSkinModalChange(true)}
                                     className="aspect-[3/4] bg-muted/50 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-muted transition-all group"
                                 >
                                     <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center mb-2 group-hover:bg-primary/15 transition-colors">
@@ -640,81 +816,97 @@ function Skins({ onLogout, onProfileUpdate }) {
                                 </div>
 
                                 {localSkins.map((skin) => (
-                                    <div
-                                        key={skin.id}
-                                        onClick={() => handleSelectLocalSkin(skin)}
-                                        className={`aspect-[3/4] bg-card rounded-lg overflow-hidden relative cursor-pointer border-2 transition-all group ${pendingSkin?.id === skin.id ? 'border-primary ring-1 ring-primary/25' : 'border-transparent hover:border-border'}`}
-                                    >
-                                        <div className="p-3 flex items-center justify-center h-full bg-muted/30">
-                                            {!webglError ? (
-                                                <SkinPreview3D src={skin.data || `file://${skin.path}`} />
-                                            ) : (
-                                                <SkinPreview src={skin.data || `file://${skin.path}`} />
-                                            )}
-                                        </div>
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <div className="flex items-center gap-1">
-                                                {editingSkinId === skin.id ? (
-                                                    <Input
-                                                        autoFocus
-                                                        className="h-6 text-xs px-1.5 bg-background/80 border-primary"
-                                                        value={editName}
-                                                        onChange={(e) => setEditName(e.target.value)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') handleRename(skin.id);
-                                                            if (e.key === 'Escape') setEditingSkinId(null);
-                                                        }}
-                                                        onBlur={() => handleRename(skin.id)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                ) : (
-                                                    <>
-                                                        <span
-                                                            className="text-foreground text-xs font-medium truncate flex-1 cursor-text"
-                                                            onDoubleClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setEditingSkinId(skin.id);
-                                                                setEditName(skin.name);
-                                                            }}
-                                                        >
-                                                            {skin.name}
-                                                        </span>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-5 w-5 shrink-0"
-                                                                    onClick={(e) => {
+                                    <ContextMenu key={skin.id}>
+                                        <ContextMenuTrigger>
+                                            <div
+                                                onClick={() => handleSelectLocalSkin(skin)}
+                                                className={`aspect-[3/4] bg-card rounded-lg overflow-hidden relative cursor-pointer border-2 transition-all group ${pendingSkin?.id === skin.id ? 'border-primary ring-1 ring-primary/25' : 'border-transparent hover:border-border'}`}
+                                            >
+                                                <div className="p-3 flex items-center justify-center h-full bg-muted/30">
+                                                    {!webglError ? (
+                                                        <SkinPreview3D src={skin.data || `file://${skin.path}`} />
+                                                    ) : (
+                                                        <SkinPreview src={skin.data || `file://${skin.path}`} />
+                                                    )}
+                                                </div>
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <div className="flex items-center gap-1">
+                                                        {editingSkinId === skin.id ? (
+                                                            <Input
+                                                                autoFocus
+                                                                className="h-6 text-xs px-1.5 bg-background/80 border-primary"
+                                                                value={editName}
+                                                                onChange={(e) => setEditName(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') handleRename(skin.id);
+                                                                    if (e.key === 'Escape') setEditingSkinId(null);
+                                                                }}
+                                                                onBlur={() => handleRename(skin.id)}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            />
+                                                        ) : (
+                                                            <>
+                                                                <span
+                                                                    className="text-foreground text-xs font-medium truncate flex-1 cursor-text"
+                                                                    onDoubleClick={(e) => {
                                                                         e.stopPropagation();
                                                                         setEditingSkinId(skin.id);
                                                                         setEditName(skin.name);
                                                                     }}
                                                                 >
-                                                                    <Pencil className="h-3 w-3" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>Rename</TooltipContent>
-                                                        </Tooltip>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
+                                                                    {skin.name}
+                                                                </span>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-5 w-5 shrink-0"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setEditingSkinId(skin.id);
+                                                                                setEditName(skin.name);
+                                                                            }}
+                                                                        >
+                                                                            <Pencil className="h-3 w-3" />
+                                                                        </Button>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent>Rename</TooltipContent>
+                                                                </Tooltip>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
 
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <Button
-                                                    variant="destructive"
-                                                    size="icon"
-                                                    className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={(e) => handleDeleteSkin(e, skin.id)}
-                                                >
-                                                    <Trash2 className="h-3 w-3" />
-                                                </Button>
-                                            </TooltipTrigger>
-                                            <TooltipContent>Delete</TooltipContent>
-                                        </Tooltip>
-                                    </div>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="destructive"
+                                                            size="icon"
+                                                            className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteSkin(skin.id);
+                                                            }}
+                                                        >
+                                                            <Trash2 className="h-3 w-3" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Delete</TooltipContent>
+                                                </Tooltip>
+                                            </div>
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent className="w-48">
+                                            <ContextMenuItem onClick={() => handleDownloadSkin(skin)}>
+                                                <Download className="h-4 w-4" />
+                                                {t('skins.download_skin')}
+                                            </ContextMenuItem>
+                                            <ContextMenuItem onClick={() => handleDeleteSkin(skin.id)} className="text-destructive focus:text-destructive">
+                                                <Trash2 className="h-4 w-4" />
+                                                {t('common.delete')}
+                                            </ContextMenuItem>
+                                        </ContextMenuContent>
+                                    </ContextMenu>
                                 ))}
                             </div>
                         </div>
@@ -724,20 +916,17 @@ function Skins({ onLogout, onProfileUpdate }) {
                         <div>
                             <h3 className="text-sm font-medium text-muted-foreground mb-3">{t('skins.default_skins')}</h3>
                             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                                {[
-                                    { name: 'Steve', url: 'https://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b', model: 'classic' },
-                                    { name: 'Alex', url: 'https://textures.minecraft.net/texture/3b60a1f6d562f52aaebbf1434f1de147933a3affe0e764fa49ea057536623cd3', model: 'slim' }
-                                ].map(skin => (
+                                {DEFAULT_SKINS.map(skin => (
                                     <div
                                         key={skin.name}
-                                        onClick={() => handleSelectDefaultSkin(skin.name)}
+                                        onClick={() => handleSelectDefaultSkin(skin)}
                                         className={`aspect-[3/4] bg-card rounded-lg overflow-hidden relative cursor-pointer border-2 transition-all group ${pendingSkin?.name === skin.name ? 'border-primary ring-1 ring-primary/25' : 'border-transparent hover:border-border'}`}
                                     >
                                         <div className="p-3 flex items-center justify-center h-full bg-muted/30">
                                             {!webglError ? (
-                                                <SkinPreview3D src={skin.url} model={skin.model} />
+                                                <SkinPreview3D src={getDefaultSkinUrl(skin, skin.defaultModel)} model={skin.defaultModel} />
                                             ) : (
-                                                <SkinPreview src={skin.url} model={skin.model} />
+                                                <SkinPreview src={getDefaultSkinUrl(skin, skin.defaultModel)} model={skin.defaultModel} />
                                             )}
                                         </div>
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 transition-opacity">
