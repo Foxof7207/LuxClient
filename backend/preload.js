@@ -123,7 +123,10 @@ const electronAPI = {
     uploadSkinFromUrl: (token, skinUrl, variant) => ipcRenderer.invoke('skin:upload-from-url', token, skinUrl, variant),
     setCape: (token, capeId) => ipcRenderer.invoke('skin:set-cape', token, capeId),
     saveLocalSkin: (filePath) => ipcRenderer.invoke('skin:save-local', filePath),
+    saveLocalSkinFromUrl: (skinUrl) => ipcRenderer.invoke('skin:save-local-from-url', skinUrl),
+    saveLocalSkinFromUsername: (username) => ipcRenderer.invoke('skin:save-local-from-username', username),
     getLocalSkins: () => ipcRenderer.invoke('skin:get-local'),
+    exportLocalSkin: (id) => ipcRenderer.invoke('skin:export-local', id),
     deleteLocalSkin: (id) => ipcRenderer.invoke('skin:delete-local', id),
     onUpdateAvailable: (callback) => {
         const subscription = (_event, value) => callback(value);
