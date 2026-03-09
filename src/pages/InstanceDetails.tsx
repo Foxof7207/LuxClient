@@ -25,6 +25,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
     const [searching, setSearching] = useState(false);
     const [searchTimeout, setSearchTimeout] = useState(null);
     const [sortMethod, setSortMethod] = useState('relevance');
+    const [provider, setProvider] = useState('modrinth');
     const [searchOffset, setSearchOffset] = useState(0);
     const [totalHits, setTotalHits] = useState(0);
     const limit = 10;
@@ -155,7 +156,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         if (activeTab === 'content' && contentView === 'search') {
             handleSearch();
         }
-    }, [sortMethod, searchOffset, activeTab]);
+    }, [sortMethod, searchOffset, activeTab, provider]);
     useEffect(() => {
         if (autoScroll && logContainerRef.current) {
             logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -172,7 +173,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
 
         setSearchTimeout(timeout);
         return () => clearTimeout(timeout);
-    }, [searchQuery, contentView, searchCategory]);
+    }, [searchQuery, contentView, searchCategory, provider]);
 
     const loadMods = async () => {
         const res = await window.electronAPI.getMods(instance.name);
@@ -453,7 +454,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
             offset: searchOffset,
             limit,
             projectType: searchCategory,
-            includeCurseforge: ['mod', 'resourcepack', 'shader'].includes(searchCategory)
+            provider
         });
         if (res.success) {
             setSearchResults(res.results);
@@ -1251,17 +1252,33 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                                     <div className="text-sm text-muted-foreground">
                                         {t('instance_details.search.showing_results', { count: searchResults.length })}
                                     </div>
-                                    <div className="w-48">
-                                        <Dropdown
-                                            options={[
-                                                { value: 'relevance', label: t('instance_details.search.relevance') },
-                                                { value: 'downloads', label: t('instance_details.search.downloads') },
-                                                { value: 'newest', label: t('instance_details.search.newest') },
-                                                { value: 'updated', label: t('instance_details.search.updated') }
-                                            ]}
-                                            value={sortMethod}
-                                            onChange={setSortMethod}
-                                        />
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex bg-muted p-1 rounded-xl border border-border">
+                                            <button
+                                                onClick={() => setProvider('modrinth')}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${provider === 'modrinth' ? 'bg-primary text-black shadow-sm' : 'text-muted-foreground hover:text-accent-foreground'}`}
+                                            >
+                                                Modrinth
+                                            </button>
+                                            <button
+                                                onClick={() => setProvider('curseforge')}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${provider === 'curseforge' ? 'bg-primary text-black shadow-sm' : 'text-muted-foreground hover:text-accent-foreground'}`}
+                                            >
+                                                CurseForge
+                                            </button>
+                                        </div>
+                                        <div className="w-48">
+                                            <Dropdown
+                                                options={[
+                                                    { value: 'relevance', label: t('instance_details.search.relevance') },
+                                                    { value: 'downloads', label: t('instance_details.search.downloads') },
+                                                    { value: 'newest', label: t('instance_details.search.newest') },
+                                                    { value: 'updated', label: t('instance_details.search.updated') }
+                                                ]}
+                                                value={sortMethod}
+                                                onChange={setSortMethod}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 

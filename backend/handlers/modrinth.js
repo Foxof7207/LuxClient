@@ -1215,58 +1215,67 @@ const resolveDependenciesInternal = async (versionId, loaders = [], gameVersions
 module.exports = (ipcMain, win) => {
     ipcMain.handle('modrinth:search', async (_, query, facets = [], options = {}) => {
         try {
-            const { limit = 20, offset = 0, index, projectType = 'mod', includeCurseforge = false } = options;
+            const { limit = 20, offset = 0, index, projectType = 'mod', provider = 'modrinth' } = options;
+            const includeCurseforge = provider === 'curseforge' || provider === 'both';
+            const includeModrinth = provider === 'modrinth' || provider === 'both';
+
             const normalizedLimit = Math.max(1, Number(limit) || 20);
             const normalizedOffset = Math.max(0, Number(offset) || 0);
             const normalizedIndex = getNormalizedSearchIndex(index);
-            const baseFetchLimit = includeCurseforge
+
+            const baseFetchLimit = (includeCurseforge && includeModrinth)
                 ? Math.min(Math.max(normalizedLimit + normalizedOffset, normalizedLimit), 100)
                 : normalizedLimit;
             const mergeFetchBuffer = 30;
             const mergeCandidateTarget = normalizedOffset + normalizedLimit + mergeFetchBuffer;
-            const modrinthFetchLimit = includeCurseforge
+
+            const modrinthFetchLimit = (includeCurseforge && includeModrinth)
                 ? Math.min(Math.max(baseFetchLimit, mergeCandidateTarget), 100)
                 : baseFetchLimit;
-            const curseforgeFetchLimit = includeCurseforge
+            const curseforgeFetchLimit = (includeCurseforge && includeModrinth)
                 ? Math.min(Math.max(baseFetchLimit, mergeCandidateTarget), 250)
                 : baseFetchLimit;
+
             const facetStr = JSON.stringify([[`project_type:${projectType}`], ...facets]);
 
-            const params = {
-                query,
-                facets: facetStr,
-                limit: modrinthFetchLimit,
-                offset: includeCurseforge ? 0 : normalizedOffset
-            };
-            if (normalizedIndex) params.index = normalizedIndex;
+            let modrinthResults = [];
+            let modrinthTotalHits = 0;
+            let modrinthOffset = normalizedOffset;
+            let modrinthLimit = normalizedLimit;
 
-            let modrinthResponseData = {
-                hits: [],
-                total_hits: 0,
-                offset: includeCurseforge ? 0 : normalizedOffset,
-                limit: modrinthFetchLimit
-            };
+            if (includeModrinth) {
+                const params = {
+                    query,
+                    facets: facetStr,
+                    limit: modrinthFetchLimit,
+                    offset: (includeCurseforge && includeModrinth) ? 0 : normalizedOffset
+                };
+                if (normalizedIndex) params.index = normalizedIndex;
 
-            try {
-                const response = await axios.get(`${MODRINTH_API}/search`, {
-                    params,
-                    headers: { 'User-Agent': USER_AGENT }
-                });
-                modrinthResponseData = response.data;
-            } catch (modrinthError) {
-                if (!includeCurseforge) {
-                    throw modrinthError;
+                try {
+                    const response = await axios.get(`${MODRINTH_API}/search`, {
+                        params,
+                        headers: { 'User-Agent': USER_AGENT }
+                    });
+                    const data = response.data;
+                    modrinthResults = (data.hits || []).map((hit, rank) => ({
+                        ...hit,
+                        source: 'modrinth',
+                        __providerRank: rank
+                    }));
+                    modrinthTotalHits = Number(data.total_hits || 0);
+                    modrinthOffset = Number(data.offset ?? normalizedOffset);
+                    modrinthLimit = Number(data.limit ?? normalizedLimit);
+                } catch (modrinthError) {
+                    if (provider === 'modrinth') {
+                        throw modrinthError;
+                    }
+                    console.warn('[Modrinth:Search] Modrinth API unavailable:', modrinthError.message);
                 }
-                console.warn('[Modrinth:Search] Modrinth API unavailable, trying CurseForge fallback:', modrinthError.message);
             }
 
-            const modrinthResults = (modrinthResponseData.hits || []).map((hit, rank) => ({
-                ...hit,
-                source: 'modrinth',
-                __providerRank: rank
-            }));
             let results = modrinthResults;
-            let totalHits = Number(modrinthResponseData.total_hits || 0);
+            let totalHits = modrinthTotalHits;
 
             if (includeCurseforge) {
                 try {
@@ -1274,7 +1283,7 @@ module.exports = (ipcMain, win) => {
                         query,
                         projectType,
                         limit: curseforgeFetchLimit,
-                        offset: 0,
+                        offset: (includeCurseforge && includeModrinth) ? 0 : normalizedOffset,
                         index: normalizedIndex
                     });
 
@@ -1283,15 +1292,25 @@ module.exports = (ipcMain, win) => {
                         __providerRank: rank
                     }));
 
-                    totalHits += Number(curseforgeResult.total_hits || 0);
-                    const deduplicated = mergeDuplicateSearchEntries([...modrinthResults, ...curseforgeResults]);
-                    totalHits = deduplicated.length;
-                    const merged = sortMergedSearchResults(deduplicated, normalizedIndex);
-
-                    results = merged.slice(normalizedOffset, normalizedOffset + normalizedLimit);
+                    if (includeModrinth) {
+                        // Merging mode
+                        const deduplicated = mergeDuplicateSearchEntries([...modrinthResults, ...curseforgeResults]);
+                        totalHits = deduplicated.length; // This is a limitation of merging, we can't easily know the true global total
+                        const merged = sortMergedSearchResults(deduplicated, normalizedIndex);
+                        results = merged.slice(normalizedOffset, normalizedOffset + normalizedLimit);
+                    } else {
+                        // CurseForge only mode
+                        results = curseforgeResults;
+                        totalHits = Number(curseforgeResult.total_hits || 0);
+                    }
                 } catch (curseforgeError) {
-                    console.warn('[CurseForge:Search] Failed to enrich search results:', curseforgeError.message);
-                    results = results.slice(normalizedOffset, normalizedOffset + normalizedLimit);
+                    if (provider === 'curseforge') {
+                        throw curseforgeError;
+                    }
+                    console.warn('[CurseForge:Search] Failed to fetch CurseForge results:', curseforgeError.message);
+                    if (includeModrinth) {
+                        results = modrinthResults.slice(normalizedOffset, normalizedOffset + normalizedLimit);
+                    }
                 }
             }
 
@@ -1299,12 +1318,8 @@ module.exports = (ipcMain, win) => {
                 success: true,
                 results: results.map(stripSearchInternalFields),
                 total_hits: totalHits,
-                offset: includeCurseforge
-                    ? normalizedOffset
-                    : Number(modrinthResponseData.offset || normalizedOffset),
-                limit: includeCurseforge
-                    ? normalizedLimit
-                    : Number(modrinthResponseData.limit || normalizedLimit)
+                offset: (includeCurseforge && includeModrinth) ? normalizedOffset : modrinthOffset,
+                limit: (includeCurseforge && includeModrinth) ? normalizedLimit : modrinthLimit
             };
         } catch (e) {
             console.error("Modrinth Search Error:", e.response ? e.response.data : e.message);

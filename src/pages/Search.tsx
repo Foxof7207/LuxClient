@@ -54,6 +54,7 @@ function Search({ initialCategory, onCategoryConsumed }) {
     const limit = 21;
     const [totalHits, setTotalHits] = useState(0);
     const [sortMethod, setSortMethod] = useState('relevance');
+    const [provider, setProvider] = useState('modrinth');
     useEffect(() => {
         if (initialCategory) {
             setProjectType(initialCategory);
@@ -147,7 +148,7 @@ function Search({ initialCategory, onCategoryConsumed }) {
 
     useEffect(() => {
         handleSearch();
-    }, [offset, sortMethod, projectType]);
+    }, [offset, sortMethod, projectType, provider]);
 
     useEffect(() => {
         if (!didInitLiveSearchRef.current) {
@@ -185,7 +186,7 @@ function Search({ initialCategory, onCategoryConsumed }) {
                 limit,
                 index: sortMethod,
                 projectType,
-                includeCurseforge: ['mod', 'resourcepack', 'shader'].includes(projectType)
+                provider
             });
 
             if (res.success) {
@@ -527,17 +528,29 @@ function Search({ initialCategory, onCategoryConsumed }) {
                         <span className="text-sm text-muted-foreground">
                             {t('search.found_results', { count: totalHits, type: projectType === 'mod' ? t('instance_details.content.mods') : t('instance_details.content.packs_short') })}
                         </span>
-                        <Select value={sortMethod} onValueChange={setSortMethod}>
-                            <SelectTrigger className="w-[160px]">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="relevance">{t('search.relevance')}</SelectItem>
-                                <SelectItem value="downloads">{t('search.downloads')}</SelectItem>
-                                <SelectItem value="newest">{t('search.newest')}</SelectItem>
-                                <SelectItem value="updated">{t('search.updated')}</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-3">
+                            <Tabs value={provider} onValueChange={setProvider}>
+                                <TabsList>
+                                    <TabsTrigger value="modrinth" className="text-xs h-7 px-3">
+                                        {t('search.modrinth')}
+                                    </TabsTrigger>
+                                    <TabsTrigger value="curseforge" className="text-xs h-7 px-3">
+                                        {t('search.curseforge')}
+                                    </TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+                            <Select value={sortMethod} onValueChange={setSortMethod}>
+                                <SelectTrigger className="w-[160px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="relevance">{t('search.relevance')}</SelectItem>
+                                    <SelectItem value="downloads">{t('search.downloads')}</SelectItem>
+                                    <SelectItem value="newest">{t('search.newest')}</SelectItem>
+                                    <SelectItem value="updated">{t('search.updated')}</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto min-h-0 pr-1">

@@ -567,7 +567,10 @@
         "installing_item": "Installing {{title}} ({{current}}/{{total}})...",
         "failed_install_single": "Failed to install {{title}}: {{error}}",
         "batch_success": "{{count}} items installed",
-        "no_gallery": "No screenshots available for this project."
+        "no_gallery": "No screenshots available for this project.",
+        "provider": "Provider",
+        "modrinth": "Modrinth",
+        "curseforge": "CurseForge"
     },
     "server": {
         "title": "Server Management",

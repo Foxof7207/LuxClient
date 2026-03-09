@@ -1169,11 +1169,11 @@ function Settings({ mode = 'default' }) {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm font-medium text-foreground">{t('settings.update.current_version', 'Current Version')}</p>
-                                    <p className="text-sm text-muted-foreground mt-0.5">
+                                    <div className="text-sm text-muted-foreground mt-0.5">
                                         {updateInfo?.currentVersion ? (
                                             <Badge variant="secondary">{updateInfo.currentVersion}</Badge>
                                         ) : '...'}
-                                    </p>
+                                    </div>
                                 </div>
                                 <Button
                                     onClick={handleCheckUpdate}
