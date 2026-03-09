@@ -44,7 +44,7 @@ function MiniPreview({ theme }) {
                 className="absolute left-2 top-2 bottom-2 w-8 rounded-xl flex flex-col items-center py-3 gap-1"
                 style={{
                     background: `rgba(${theme.surfaceColor ? hexToRgb(theme.surfaceColor) : '28, 28, 28'}, ${theme.panelOpacity ?? 0.85})`,
-                    backdropFilter: `blur(${theme.glassBlur || 10}px)`,
+                    backdropFilter: `blur(${theme.glassBlur ?? 10}px)`,
                     border: '1px solid rgba(255, 255, 255, 0.05)'
                 }}
             >
@@ -70,7 +70,7 @@ function MiniPreview({ theme }) {
                     className="flex-1 rounded-xl p-3"
                     style={{
                         background: `rgba(${theme.surfaceColor ? hexToRgb(theme.surfaceColor) : '28, 28, 28'}, ${theme.panelOpacity ?? 0.85})`,
-                        backdropFilter: `blur(${theme.glassBlur || 10}px)`,
+                        backdropFilter: `blur(${theme.glassBlur ?? 10}px)`,
                         border: '1px solid rgba(255, 255, 255, 0.05)',
                         borderRadius: `${theme.borderRadius ?? 12}px`
                     }}

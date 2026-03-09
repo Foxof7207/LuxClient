@@ -7,9 +7,9 @@ if (process.platform === 'linux' && process.env.XDG_CURRENT_DESKTOP === 'COSMIC'
     process.env.XDG_CURRENT_DESKTOP = 'Unity';
 }
 
-app.setName(pkg.productName || 'Lux');
+app.setName(pkg.productName || 'Lux Client');
 app.setAboutPanelOptions({
-    applicationName: pkg.productName || 'Lux',
+    applicationName: pkg.productName || 'Lux Client',
     applicationVersion: pkg.version
 });
 
