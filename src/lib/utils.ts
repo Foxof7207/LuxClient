@@ -38,7 +38,7 @@ export function adjustHex(hex, pct) {
 
 export function updateShadcnVars(theme) {
   const root = document.documentElement;
-  const primary = theme.primaryColor || '#22e07a';
+  const primary = theme.primaryColor || '#e26602';
   const bg = theme.backgroundColor || '#0d1117';
   const surface = theme.surfaceColor || '#161b22';
 

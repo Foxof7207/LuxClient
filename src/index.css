@@ -242,8 +242,8 @@
 
 @layer base {
   :root {
-    --primary-color: #e27602;
-    --primary-color-rgb: 27, 217, 106;
+    --primary-color: #e26602;
+    --primary-color-rgb: 226, 102, 2;
     --background-color: #111111;
     --background-dark-color: #0b0b0b;
     --background-dark-color-rgb: 11, 11, 11;
@@ -264,19 +264,19 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 4%;
     --popover-foreground: 0 0% 98%;
-    --primary: 147 78% 48%;
+    --primary: 27 98% 45%;
     --primary-foreground: 0 0% 5%;
-    --secondary: 0 0% 14%;
+    --secondary: 22 99% 41%;
     --secondary-foreground: 0 0% 90%;
     --muted: 0 0% 15%;
     --muted-foreground: 0 0% 52%;
-    --accent: 0 0% 16%;
+    --accent: 34 97% 46%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 14%;
     --input: 0 0% 14%;
-    --ring: 147 78% 48%;
+    --ring: 27 98% 45%;
     --radius: 8px;
     --sidebar-width: 64px;
     --sidebar-width-expanded: 248px;
@@ -285,7 +285,7 @@
     --sidebar-accent: 0 0% 14%;
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 0 0% 14%;
-    --chart-1: 147 78% 48%;
+    --chart-1: 27 98% 45%;
     --chart-2: 210 70% 50%;
     --chart-3: 0 84% 60%;
     --chart-4: 45 93% 47%;

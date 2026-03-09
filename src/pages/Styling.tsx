@@ -31,7 +31,19 @@ import {
 
 const PRESETS = [
   {
-    name: "Emerald (Default)",
+    name: "Lux Forest (Default)",
+    primary: "#e26602",
+    bg: "#111111",
+    surface: "#1c1c1c",
+  },
+  {
+    name: "Light Lux",
+    primary: "#d24e01",
+    bg: "#f9ddb1",
+    surface: "#f5c77e",
+  },
+  {
+    name: "Emerald",
     primary: "#1bd96a",
     bg: "#111111",
     surface: "#1c1c1c",
@@ -118,7 +130,7 @@ const FONT_OPTIONS = [
 ];
 
 const DEFAULT_THEME = {
-  primaryColor: "#1bd96a",
+  primaryColor: "#e26602",
   backgroundColor: "#111111",
   surfaceColor: "#1c1c1c",
   glassBlur: 10,

@@ -77,7 +77,7 @@ function App() {
     const [userProfile, setUserProfile] = useState(null);
     const [isGuest, setIsGuest] = useState(false);
     const [theme, setTheme] = useState({
-        primaryColor: '#1bd96a',
+        primaryColor: '#e26602',
         backgroundColor: '#111111',
         surfaceColor: '#1c1c1c',
         glassBlur: 10,
