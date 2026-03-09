@@ -7,7 +7,8 @@
   <p>
     <em>
       <b>Lux</b> is a Minecraft launcher built with <b>Electron</b>, <b>React</b>, and <b>Tailwind CSS</b>.<br />
-      Seamlessly manage all your Minecraft instances, skins, and modpacks in a clean, simple app.
+      Seamlessly manage all your Minecraft instances, skins, and modpacks in a clean, simple app.  
+      Now with built-in support for both <b>Modrinth</b> and <b>CurseForge</b> modpacks.
     </em>
   </p>
   
@@ -41,7 +42,7 @@
 ### Instance Management
 
 - **Sorting & Grouping**: Sort your instances by name, version, or playtime. You can also group them by version or loader.
-- **Modrinth Support**: Import modpacks and instances from Modrinth directly.
+- **Modrinth & CurseForge Support**: Import modpacks and instances from <b>Modrinth</b> and <b>CurseForge</b> directly.
 - **Multiloader Launch**: Start Vanilla, Fabric, Forge, NeoForge, or Quilt with one click.
 
 ### Skin & Cape Viewer
