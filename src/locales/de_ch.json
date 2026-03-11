@@ -186,7 +186,8 @@
         "import_starting": "Im Hintergrund wird \"{{name}}\" importiert...",
         "instance_created": "Instanz \"{{name}}\" erstellt. Download dort im Hintergrund.",
         "import_failed": "Import isch gscheitert: {{error}}",
-        "create_failed": "Instanzerstellig isch gscheitert: {{error}}"
+        "create_failed": "Instanzerstellig isch gscheitert: {{error}}",
+        "pixel_editor_btn": "Pixel-Editor"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Mir händ d'Ursach vo dem Absturz nöd automatisch chöne identifiziere.",
         "view_log": "Ufegladnes Protokoll aaluege",
         "check_manually": "Bitte überprüef d'Datei latest.log manuell."
+    },
+    "pixel_editor": {
+        "title": "Pixel-Editor",
+        "brush": "Pinsel",
+        "eraser": "Radiergummi",
+        "fill": "Füllen",
+        "clear": "Leeren",
+        "use_as_icon": "Als Icon verwenden",
+        "download": "PNG herunterladen",
+        "grid_toggle": "Raster umschalten",
+        "brush_size": "Pinselgröße",
+        "palette": "Palette",
+        "recent_colors": "Zuletzt verwendet"
     }
 }

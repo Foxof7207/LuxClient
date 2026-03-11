@@ -187,7 +187,8 @@
         "import_starting": "Démarrage de l'importation en arrière-plan pour \"{{name}}\"...",
         "instance_created": "Instance \"{{name}}\" créée. Le téléchargement commence en arrière-plan.",
         "import_failed": "L'importation a échoué : {{error}}",
-        "create_failed": "Échec de la création de l'instance : {{error}}"
+        "create_failed": "Échec de la création de l'instance : {{error}}",
+        "pixel_editor_btn": "Éditeur de Pixels"
     },
     "instance_details": {
         "tabs": {
@@ -870,5 +871,18 @@
         "no_issues": "Nous n'avons pas pu identifier automatiquement la cause de ce crash.",
         "view_log": "Voir le log téléversé",
         "check_manually": "Veuillez vérifier le fichier latest.log manuellement."
+    },
+    "pixel_editor": {
+        "title": "Éditeur de Pixels",
+        "brush": "Pinceau",
+        "eraser": "Gomme",
+        "fill": "Remplir",
+        "clear": "Effacer",
+        "use_as_icon": "Utiliser comme icône",
+        "download": "Télécharger PNG",
+        "grid_toggle": "Afficher la grille",
+        "brush_size": "Taille du pinceau",
+        "palette": "Palette",
+        "recent_colors": "Couleurs récentes"
     }
 }

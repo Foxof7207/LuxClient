@@ -186,7 +186,8 @@
         "import_starting": "Startar bakgrundsimport för \"{{name}}\"...",
         "instance_created": "Instansen \"{{name}}\" har skapats. Nedladdningen startar i bakgrunden.",
         "import_failed": "Import misslyckades: {{error}}",
-        "create_failed": "Kunde inte skapa instans: {{error}}"
+        "create_failed": "Kunde inte skapa instans: {{error}}",
+        "pixel_editor_btn": "Pixel Editor"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Vi kunde inte automatiskt identifiera orsaken till denna krasch.",
         "view_log": "Visa uppladdad logg",
         "check_manually": "Kontrollera filen latest.log manuellt."
+    },
+    "pixel_editor": {
+        "title": "Pixel Editor",
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "fill": "Fill",
+        "clear": "Clear",
+        "use_as_icon": "Use as Icon",
+        "download": "Download PNG",
+        "grid_toggle": "Toggle Grid",
+        "brush_size": "Brush Size",
+        "palette": "Palette",
+        "recent_colors": "Recent Colors"
     }
 }

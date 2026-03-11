@@ -188,7 +188,21 @@
         "import_starting": "\"{{name}}\" wird im Hintergrund importiert...",
         "instance_created": "Instanz \"{{name}}\" erstellt. Der Download startet im Hintergrund.",
         "import_failed": "Import fehlgeschlagen: {{error}}",
-        "create_failed": "Instanzerstellung fehlgeschlagen: {{error}}"
+        "create_failed": "Instanzerstellung fehlgeschlagen: {{error}}",
+        "pixel_editor_btn": "Pixel-Editor"
+    },
+    "pixel_editor": {
+        "title": "Pixel-Editor",
+        "brush": "Pinsel",
+        "eraser": "Radiergummi",
+        "fill": "Füllen",
+        "clear": "Leeren",
+        "use_as_icon": "Als Icon verwenden",
+        "download": "PNG herunterladen",
+        "grid_toggle": "Raster umschalten",
+        "brush_size": "Pinselgröße",
+        "palette": "Palette",
+        "recent_colors": "Zuletzt verwendet"
     },
     "instance_details": {
         "tabs": {

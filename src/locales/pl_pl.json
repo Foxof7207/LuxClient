@@ -186,7 +186,8 @@
         "import_starting": "Rozpoczynanie importowania w tle dla \"{{name}}\"...",
         "instance_created": "Instancja \"{{name}}\" utworzona. Pobieranie rozpoczęte w tle.",
         "import_failed": "Importowanie nie powiodło się: {{error}}",
-        "create_failed": "Nie udało się utworzyć instancji: {{error}}"
+        "create_failed": "Nie udało się utworzyć instancji: {{error}}",
+        "pixel_editor_btn": "Edytor Pikseli"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Nie udało się automatycznie zidentyfikować przyczyny tej awarii.",
         "view_log": "Zobacz przesłany log",
         "check_manually": "Sprawdź plik latest.log ręcznie."
+    },
+    "pixel_editor": {
+        "title": "Edytor Pikseli",
+        "brush": "Pędzel",
+        "eraser": "Gumka",
+        "fill": "Wypełnij",
+        "clear": "Wyczyść",
+        "use_as_icon": "Użyj jako ikony",
+        "download": "Pobierz PNG",
+        "grid_toggle": "Siatka",
+        "brush_size": "Rozmiar pędzla",
+        "palette": "Paleta",
+        "recent_colors": "Ostatnie kolory"
     }
 }

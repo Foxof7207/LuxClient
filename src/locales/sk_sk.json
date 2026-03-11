@@ -186,7 +186,8 @@
         "import_starting": "Spúšťa sa import na pozadí pre \"{{name}}\"...",
         "instance_created": "Inštancia \"{{name}}\" bola vytvorená. Sťahovanie začína na pozadí.",
         "import_failed": "Import zlyhal: {{error}}",
-        "create_failed": "Nepodarilo sa vytvoriť inštanciu: {{error}}"
+        "create_failed": "Nepodarilo sa vytvoriť inštanciu: {{error}}",
+        "pixel_editor_btn": "Pixel Editor"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Nepodarilo sa nám automaticky identifikovať príčinu tohto pádu.",
         "view_log": "Zobraziť nahraný log",
         "check_manually": "Skontrolujte súbor latest.log manuálne."
+    },
+    "pixel_editor": {
+        "title": "Pixel Editor",
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "fill": "Fill",
+        "clear": "Clear",
+        "use_as_icon": "Use as Icon",
+        "download": "Download PNG",
+        "grid_toggle": "Toggle Grid",
+        "brush_size": "Brush Size",
+        "palette": "Palette",
+        "recent_colors": "Recent Colors"
     }
 }

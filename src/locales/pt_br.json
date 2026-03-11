@@ -186,7 +186,8 @@
         "import_starting": "Iniciando importação em segundo plano para \"{{name}}\"...",
         "instance_created": "Instância \"{{name}}\" criada. Download iniciando em segundo plano.",
         "import_failed": "Falha na importação: {{error}}",
-        "create_failed": "Falha ao criar instância: {{error}}"
+        "create_failed": "Falha ao criar instância: {{error}}",
+        "pixel_editor_btn": "Editor de Pixels"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Não conseguimos identificar automaticamente a causa desta falha.",
         "view_log": "Ver log enviado",
         "check_manually": "Por favor, verifique o arquivo latest.log manualmente."
+    },
+    "pixel_editor": {
+        "title": "Editor de Pixels",
+        "brush": "Pincel",
+        "eraser": "Borracha",
+        "fill": "Preencher",
+        "clear": "Limpar",
+        "use_as_icon": "Usar como ícone",
+        "download": "Baixar PNG",
+        "grid_toggle": "Alternar grade",
+        "brush_size": "Tamanho do pincel",
+        "palette": "Paleta",
+        "recent_colors": "Cores recentes"
     }
 }

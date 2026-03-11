@@ -26,24 +26,29 @@ class AnalyticsService {
             reconnectionAttempts: 10,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
-            transports: ['websocket', 'polling']
+            transports: ['websocket'] // Start with WebSocket only
         });
 
         this.socket.on("connect", () => {
-            console.log("[Analytics] Connected to", this.serverUrl);
+            console.log("[Analytics] Connected to", this.serverUrl, "using", this.socket.io.engine.transport.name);
             this.register();
         });
 
         this.socket.on("connect_error", (err: any) => {
             console.error("[Analytics] Connection error:", err.message);
-            if (this.socket.io.opts.transports.indexOf('polling') === -1) {
-                console.log("[Analytics] Falling back to polling");
+            
+            // If we are not already using polling, fall back to it permanently for this session
+            if (!this.socket.io.opts.transports.includes('polling')) {
+                console.log("[Analytics] Falling back to polling permanently for this session");
                 this.socket.io.opts.transports = ['polling'];
+                // Force a reconnection with the new transport
+                this.socket.connect();
             }
         });
 
         this.socket.io.on("reconnect_attempt", () => {
-            if (this.socket.io.opts.transports.indexOf('polling') !== -1) {
+            // Ensure we stay on polling if we've already fallen back
+            if (this.socket.io.opts.transports.includes('polling')) {
                 this.socket.io.opts.transports = ['polling'];
             } else {
                 this.socket.io.opts.transports = ['websocket'];

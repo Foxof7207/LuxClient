@@ -187,7 +187,8 @@
         "import_starting": "Importing \"{{name}}\" in the background...",
         "instance_created": "Created \"{{name}}\". Download will start in the background.",
         "import_failed": "Import failed: {{error}}",
-        "create_failed": "Couldn't create instance: {{error}}"
+        "create_failed": "Couldn't create instance: {{error}}",
+        "pixel_editor_btn": "Pixel Editor"
     },
     "instance_details": {
         "tabs": {
@@ -870,5 +871,18 @@
         "no_issues": "We couldn't automatically identify the cause of this crash.",
         "view_log": "View Uploaded Log",
         "check_manually": "Please check the latest.log file manually."
+    },
+    "pixel_editor": {
+        "title": "Pixel Editor",
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "fill": "Fill",
+        "clear": "Clear",
+        "use_as_icon": "Use as Icon",
+        "download": "Download PNG",
+        "grid_toggle": "Toggle Grid",
+        "brush_size": "Brush Size",
+        "palette": "Palette",
+        "recent_colors": "Recent Colors"
     }
 }

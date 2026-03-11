@@ -9,6 +9,7 @@ import ModpackCodeModal from '../components/ModpackCodeModal';
 import OptimizedImage from '../components/OptimizedImage';
 import { useTranslation } from 'react-i18next';
 import PageHeader from '../components/layout/PageHeader';
+import { PixelEditorModal } from '../components/PixelEditorModal';
 import PageContent from '../components/layout/PageContent';
 import EmptyState from '../components/layout/EmptyState';
 import { Button } from '../components/ui/button';
@@ -271,6 +272,7 @@ function Dashboard({
   const { t } = useTranslation();
   const [instances, setInstances] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showPixelEditor, setShowPixelEditor] = useState(false);
 
   useEffect(() => {
     if (triggerCreate) {
@@ -997,7 +999,19 @@ function Dashboard({
                       className="hidden"
                     />
                   </div>
-                  <span className="text-[11px] text-muted-foreground">Click to upload icon</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">{t('dashboard.click_to_upload_icon', 'Click to upload icon')}</span>
+                    <span className="text-[11px] text-muted-foreground">or</span>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-[11px] font-medium"
+                      onClick={() => setShowPixelEditor(true)}
+                    >
+                      {t('dashboard.pixel_editor_btn', 'Pixel Editor')}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1012,7 +1026,7 @@ function Dashboard({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between h-5">
                       <Label className="text-xs">{t('dashboard.version')}</Label>
                       <div className="flex items-center gap-1.5">
                         <Switch
@@ -1041,7 +1055,9 @@ function Dashboard({
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">{t('dashboard.loader')}</Label>
+                    <div className="flex items-center h-5">
+                      <Label className="text-xs">{t('dashboard.loader')}</Label>
+                    </div>
                     <Dropdown
                       options={loaderOptions}
                       value={selectedLoader}
@@ -1153,6 +1169,13 @@ function Dashboard({
           </form>
         </DialogContent>
       </Dialog>
+      
+      <PixelEditorModal
+        isOpen={showPixelEditor}
+        onClose={() => setShowPixelEditor(false)}
+        onSave={(dataUrl) => setNewInstanceIcon(dataUrl)}
+        initialIcon={newInstanceIcon}
+      />
 
       {showCodeModal && (
         <ModpackCodeModal

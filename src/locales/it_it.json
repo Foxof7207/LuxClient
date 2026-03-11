@@ -186,7 +186,8 @@
         "import_starting": "Avvio importazione in background per \"{{name}}\"...",
         "instance_created": "Istanza \"{{name}}\" creata. Download avviato in background.",
         "import_failed": "Importazione fallita: {{error}}",
-        "create_failed": "Creazione istanza fallita: {{error}}"
+        "create_failed": "Creazione istanza fallita: {{error}}",
+        "pixel_editor_btn": "Editor di Pixel"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Non è stato possibile identificare automaticamente la causa di questo crash.",
         "view_log": "Visualizza log caricato",
         "check_manually": "Controlla manualmente il file latest.log."
+    },
+    "pixel_editor": {
+        "title": "Editor di Pixel",
+        "brush": "Pennello",
+        "eraser": "Gomma",
+        "fill": "Riempi",
+        "clear": "Pulisci",
+        "use_as_icon": "Usa come icona",
+        "download": "Scarica PNG",
+        "grid_toggle": "Griglia",
+        "brush_size": "Dimensione pennello",
+        "palette": "Tavolozza",
+        "recent_colors": "Colori recenti"
     }
 }

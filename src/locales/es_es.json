@@ -192,7 +192,8 @@
         "import_starting": "Iniciando importación en segundo plano de \"{{name}}\"...",
         "instance_created": "Instancia \"{{name}}\" creada. La descarga comenzará en segundo plano.",
         "import_failed": "Error al importar: {{error}}",
-        "create_failed": "No se pudo crear la instancia: {{error}}"
+        "create_failed": "No se pudo crear la instancia: {{error}}",
+        "pixel_editor_btn": "Editor de Píxeles"
     },
     "instance_details": {
         "tabs": {
@@ -875,5 +876,18 @@
         "no_issues": "No pudimos identificar automáticamente la causa de este fallo.",
         "view_log": "Ver registro subido",
         "check_manually": "Por favor, comprueba el archivo latest.log manualmente."
+    },
+    "pixel_editor": {
+        "title": "Editor de Píxeles",
+        "brush": "Pincel",
+        "eraser": "Borrador",
+        "fill": "Rellenar",
+        "clear": "Limpiar",
+        "use_as_icon": "Usar como icono",
+        "download": "Descargar PNG",
+        "grid_toggle": "Alternar cuadrícula",
+        "brush_size": "Tamaño del pincel",
+        "palette": "Paleta",
+        "recent_colors": "Colores recientes"
     }
 }

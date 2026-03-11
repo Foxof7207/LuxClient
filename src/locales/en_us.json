@@ -193,7 +193,21 @@
         "import_starting": "Importing \"{{name}}\" in the background...",
         "instance_created": "Instance \"{{name}}\" created! Downloading in the background.",
         "import_failed": "Import failed: {{error}}",
-        "create_failed": "Failed to create instance: {{error}}"
+        "create_failed": "Failed to create instance: {{error}}",
+        "pixel_editor_btn": "Pixel Editor"
+    },
+    "pixel_editor": {
+        "title": "Pixel Editor",
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "fill": "Fill",
+        "clear": "Clear",
+        "use_as_icon": "Use as Icon",
+        "download": "Download PNG",
+        "grid_toggle": "Toggle Grid",
+        "brush_size": "Brush Size",
+        "palette": "Palette",
+        "recent_colors": "Recent Colors"
     },
     "instance_details": {
         "tabs": {

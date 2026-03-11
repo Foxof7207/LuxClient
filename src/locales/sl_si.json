@@ -186,7 +186,8 @@
         "import_starting": "Začenjanje uvoza v ozadju za \"{{name}}\"...",
         "instance_created": "Instanca \"{{name}}\" je ustvarjena. Prenos se pričenja v ozadju.",
         "import_failed": "Uvoz ni uspel: {{error}}",
-        "create_failed": "Instance ni bilo mogoče ustvariti: {{error}}"
+        "create_failed": "Instance ni bilo mogoče ustvariti: {{error}}",
+        "pixel_editor_btn": "Pixel Editor"
     },
     "instance_details": {
         "tabs": {
@@ -869,5 +870,18 @@
         "no_issues": "Vzroka tega sesutja nismo mogli samodejno prepoznati.",
         "view_log": "Ogled naloženega dnevnika",
         "check_manually": "Ročno preverite datoteko latest.log."
+    },
+    "pixel_editor": {
+        "title": "Pixel Editor",
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "fill": "Fill",
+        "clear": "Clear",
+        "use_as_icon": "Use as Icon",
+        "download": "Download PNG",
+        "grid_toggle": "Toggle Grid",
+        "brush_size": "Brush Size",
+        "palette": "Palette",
+        "recent_colors": "Recent Colors"
     }
 }
