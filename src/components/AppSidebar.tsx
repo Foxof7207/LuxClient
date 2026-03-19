@@ -144,6 +144,7 @@ function AppSidebar({
     const button = (
       <button
         onClick={() => !item.disabled && setView(item.id)}
+        data-guide-id={`sidebar-nav-${item.id}`}
         className={cn(
           'group relative flex h-11 w-full items-center overflow-hidden rounded-2xl text-[13px] font-semibold outline-none focus:outline-none focus-visible:outline-none',
           layoutTransitionClass,

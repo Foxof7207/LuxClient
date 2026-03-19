@@ -51,7 +51,13 @@ module.exports = (ipcMain) => {
         language: 'en',
         hasAcceptedToS: false,
         hasSelectedLanguage: false,
-        hasSelectedThemeMode: true
+        hasSelectedThemeMode: true,
+        guidePrompts: {
+            launcher: true,
+            server: true,
+            client: true,
+            tools: true
+        }
     };
 
     const buildSettings = (settings = {}) => ({
@@ -64,6 +70,10 @@ module.exports = (ipcMain) => {
         backupSettings: {
             ...defaultSettings.backupSettings,
             ...(settings.backupSettings || {})
+        },
+        guidePrompts: {
+            ...defaultSettings.guidePrompts,
+            ...(settings.guidePrompts || {})
         }
     });
 

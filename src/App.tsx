@@ -32,8 +32,11 @@ import ThemeModeSelectionModal from './components/ThemeModeSelectionModal';
 import LoadingOverlay from './components/LoadingOverlay';
 import WindowControls from './components/WindowControls';
 import CrashModal from './components/CrashModal';
+import GuidePromptModal from './components/GuidePromptModal';
+import GuideOverlay from './components/GuideOverlay';
 import { syncCustomFonts } from './services/fontManager';
 import { updateShadcnVars } from './lib/utils';
+import { getGuideDefaultView, getGuideSteps, GuideMode, isGuideMode } from './lib/guideSteps';
 import { useTranslation } from 'react-i18next';
 import i18n, { languageMap } from './i18n';
 
@@ -90,6 +93,20 @@ const LIGHT_LUX_THEME_PRESET = {
     textOnPrimary: '#fff4ea'
 };
 
+const GUIDE_PROMPT_DEFAULTS: Record<GuideMode, boolean> = {
+    launcher: true,
+    server: true,
+    client: true,
+    tools: true
+};
+
+const GUIDE_PROMPT_SESSION_DEFAULTS: Record<GuideMode, boolean> = {
+    launcher: false,
+    server: false,
+    client: false,
+    tools: false
+};
+
 function App() {
     const { t, i18n } = useTranslation();
     const [currentView, setCurrentView] = useState('dashboard');
@@ -131,11 +148,17 @@ function App() {
     const [crashData, setCrashData] = useState(null);
     const [isCrashModalOpen, setIsCrashModalOpen] = useState(false);
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+    const [guidePromptMode, setGuidePromptMode] = useState<GuideMode | null>(null);
+    const [guidePromptDoNotShowAgain, setGuidePromptDoNotShowAgain] = useState(false);
+    const [guideMode, setGuideMode] = useState<GuideMode>('launcher');
+    const [guideStepIndex, setGuideStepIndex] = useState(0);
+    const [isGuideRunning, setIsGuideRunning] = useState(false);
 
     const lastClientView = useRef('dashboard');
     const lastServerView = useRef('server-dashboard');
     const lastToolsView = useRef('tools-dashboard');
     const appSettingsRef = useRef<any>({});
+    const guidePromptShownThisSessionRef = useRef<Record<GuideMode, boolean>>({ ...GUIDE_PROMPT_SESSION_DEFAULTS });
 
     useEffect(() => {
         appSettingsRef.current = appSettings;
@@ -149,6 +172,88 @@ function App() {
         const customFonts = (nextTheme.customFonts ?? []).map((font) => font.family);
         const availableFonts = new Set([...builtInFonts, ...customFonts]);
         return availableFonts.has(nextTheme.fontFamily) ? nextTheme.fontFamily : 'Poppins';
+    };
+
+    const getGuidePromptPreferences = (settings = appSettingsRef.current) => {
+        const persisted = settings?.guidePrompts || {};
+        return {
+            ...GUIDE_PROMPT_DEFAULTS,
+            ...persisted
+        };
+    };
+
+    const saveGuidePromptPreference = async (mode: GuideMode, enabled: boolean) => {
+        const baseSettings = appSettingsRef.current || {};
+        const nextSettings = {
+            ...baseSettings,
+            guidePrompts: {
+                ...GUIDE_PROMPT_DEFAULTS,
+                ...(baseSettings.guidePrompts || {}),
+                [mode]: enabled
+            }
+        };
+        const res = await window.electronAPI.saveSettings(nextSettings);
+        if (res.success) {
+            setAppSettings(nextSettings);
+            appSettingsRef.current = nextSettings;
+            return true;
+        }
+        return false;
+    };
+
+    const finishGuide = () => {
+        setIsGuideRunning(false);
+        setGuideStepIndex(0);
+    };
+
+    const startGuide = async (mode: GuideMode, disablePromptForMode = false) => {
+        if (disablePromptForMode) {
+            await saveGuidePromptPreference(mode, false);
+        }
+
+        guidePromptShownThisSessionRef.current[mode] = true;
+        setGuidePromptMode(null);
+        setGuidePromptDoNotShowAgain(false);
+        setIsCommandPaletteOpen(false);
+
+        const defaultView = getGuideDefaultView(mode);
+        if (currentMode !== mode) {
+            setCurrentMode(mode);
+        }
+
+        startTransition(() => {
+            setCurrentView(defaultView);
+        });
+
+        setSelectedInstance(null);
+        setSelectedServer(null);
+        setGuideMode(mode);
+        setGuideStepIndex(0);
+        setIsGuideRunning(true);
+    };
+
+    const handleGuidePromptStart = async () => {
+        if (!guidePromptMode) {
+            return;
+        }
+        await startGuide(guidePromptMode, guidePromptDoNotShowAgain);
+    };
+
+    const handleGuidePromptSkip = async () => {
+        if (!guidePromptMode) {
+            return;
+        }
+
+        if (guidePromptDoNotShowAgain) {
+            await saveGuidePromptPreference(guidePromptMode, false);
+        }
+
+        setGuidePromptMode(null);
+        setGuidePromptDoNotShowAgain(false);
+    };
+
+    const handleRestartGuide = (mode: GuideMode) => {
+        void startGuide(mode);
     };
 
     useEffect(() => {
@@ -529,6 +634,23 @@ function App() {
         });
     };
 
+    const handleGuidePrevious = () => {
+        setGuideStepIndex((prev) => Math.max(0, prev - 1));
+    };
+
+    const handleGuideNext = () => {
+        const nextIndex = guideStepIndex + 1;
+        if (nextIndex >= guideSteps.length) {
+            finishGuide();
+            return;
+        }
+        setGuideStepIndex(nextIndex);
+    };
+
+    const handleGuideFinish = () => {
+        finishGuide();
+    };
+
     const isLoginView = !userProfile && !isGuest;
     const isLanguageSelectionOpen = !isInitialLoading && appSettings.hasSelectedLanguage === false;
     const isAgreementModalOpen = !isInitialLoading && appSettings.hasSelectedLanguage === true && appSettings.hasAcceptedToS === false;
@@ -537,8 +659,70 @@ function App() {
         appSettings.hasSelectedLanguage === true &&
         appSettings.hasAcceptedToS === true &&
         appSettings.hasSelectedThemeMode === false;
-    const isCommandPaletteAvailable = !isLoginView && !isLanguageSelectionOpen && !isAgreementModalOpen && !isThemeModeSelectionOpen;
     const canAccessSkins = Boolean(userProfile) && !isGuest;
+    const guideSteps = React.useMemo(() => getGuideSteps(guideMode, { canAccessSkins }), [guideMode, canAccessSkins]);
+    const isGuidePromptBlockedBySetup =
+        isInitialLoading ||
+        isLoginView ||
+        isLanguageSelectionOpen ||
+        isAgreementModalOpen ||
+        isThemeModeSelectionOpen;
+    const isCommandPaletteAvailable =
+        !isGuidePromptBlockedBySetup &&
+        !isGuideRunning &&
+        guidePromptMode === null;
+
+    useEffect(() => {
+        if (!isGuideRunning) {
+            return;
+        }
+
+        const step = guideSteps[guideStepIndex];
+        if (!step) {
+            finishGuide();
+            return;
+        }
+
+        if (step.mode && step.mode !== currentMode) {
+            setCurrentMode(step.mode);
+        }
+
+        if (step.view && step.view !== currentView) {
+            startTransition(() => {
+                setCurrentView(step.view);
+            });
+        }
+    }, [isGuideRunning, guideStepIndex, guideSteps, currentMode, currentView]);
+
+    useEffect(() => {
+        if (isGuidePromptBlockedBySetup || isGuideRunning || guidePromptMode !== null) {
+            return;
+        }
+
+        if (!isGuideMode(currentMode)) {
+            return;
+        }
+
+        const mode = currentMode;
+        if (guidePromptShownThisSessionRef.current[mode]) {
+            return;
+        }
+
+        const guidePromptPreferences = getGuidePromptPreferences();
+        if (guidePromptPreferences[mode] === false) {
+            return;
+        }
+
+        guidePromptShownThisSessionRef.current[mode] = true;
+        setGuidePromptMode(mode);
+        setGuidePromptDoNotShowAgain(false);
+    }, [
+        currentMode,
+        isGuidePromptBlockedBySetup,
+        isGuideRunning,
+        guidePromptMode,
+        appSettings
+    ]);
 
     return (
         <ExtensionProvider>
@@ -632,7 +816,9 @@ function App() {
                                         {currentView === 'search' && <Search initialCategory={searchCategory} onCategoryConsumed={() => setSearchCategory(null)} />}
                                         {currentView === 'skins' && !isGuest && <Skins onLogout={handleLogout} onProfileUpdate={setUserProfile} />}
                                         {currentView === 'styling' && <Styling />}
-                                        {currentView === 'settings' && <Settings />}
+                                        {currentView === 'settings' && (
+                                            <Settings mode="launcher" onRestartGuide={() => handleRestartGuide('launcher')} />
+                                        )}
                                         {currentView === 'instance-details' && selectedInstance && (
                                             <InstanceDetails instance={selectedInstance} onBack={handleBackToDashboard} runningInstances={runningInstances} onInstanceUpdate={handleInstanceUpdate} isGuest={isGuest} />
                                         )}
@@ -655,7 +841,9 @@ function App() {
                                         {currentView === 'search' && <ServerSearch />}
                                         {currentView === 'styling' && <Styling />}
                                         {currentView === 'server-library' && <ServerLibrary />}
-                                        {currentView === 'server-settings' && <ServerSettings />}
+                                        {currentView === 'server-settings' && (
+                                            <ServerSettings onRestartGuide={() => handleRestartGuide('server')} />
+                                        )}
                                     </>
                                 )}
 
@@ -666,14 +854,18 @@ function App() {
                                         {currentView === 'extensions' && <Extensions />}
                                         {currentView === 'styling' && <Styling />}
                                         {currentView === 'mods' && <ClientMods />}
-                                        {currentView === 'settings' && <Settings mode="client" />}
+                                        {currentView === 'settings' && (
+                                            <Settings mode="client" onRestartGuide={() => handleRestartGuide('client')} />
+                                        )}
                                     </>
                                 )}
 
                                 {currentMode === 'tools' && (
                                     <>
                                         {currentView === 'tools-dashboard' && <ToolsDashboard />}
-                                        {currentView === 'settings' && <Settings />}
+                                        {currentView === 'settings' && (
+                                            <Settings mode="tools" onRestartGuide={() => handleRestartGuide('tools')} />
+                                        )}
                                     </>
                                 )}
 
@@ -732,6 +924,27 @@ function App() {
 
             {isThemeModeSelectionOpen && (
                 <ThemeModeSelectionModal onSelect={handleThemeModeSelect} />
+            )}
+
+            {guidePromptMode && (
+                <GuidePromptModal
+                    mode={guidePromptMode}
+                    doNotShowAgain={guidePromptDoNotShowAgain}
+                    onDoNotShowAgainChange={setGuidePromptDoNotShowAgain}
+                    onStart={handleGuidePromptStart}
+                    onSkip={handleGuidePromptSkip}
+                />
+            )}
+
+            {isGuideRunning && guideSteps.length > 0 && (
+                <GuideOverlay
+                    steps={guideSteps}
+                    stepIndex={guideStepIndex}
+                    onPrevious={handleGuidePrevious}
+                    onNext={handleGuideNext}
+                    onFinish={handleGuideFinish}
+                    onSkip={handleGuideFinish}
+                />
             )}
 
         </ExtensionProvider>

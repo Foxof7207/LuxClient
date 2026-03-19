@@ -42,10 +42,11 @@ import {
     Play,
     Shield,
     Settings2,
-    RotateCcw
+    RotateCcw,
+    Compass
 } from 'lucide-react';
 
-function Settings({ mode = 'default' }) {
+function Settings({ mode = 'default', onRestartGuide = null }) {
     const { t, i18n } = useTranslation();
     const { addNotification } = useNotification();
     const isClientSettings = mode === 'client';
@@ -346,6 +347,14 @@ function Settings({ mode = 'default' }) {
 
     const handleManualSave = () => {
         saveSettings(settings, false);
+    };
+
+    const handleRestartGuideNow = () => {
+        if (typeof onRestartGuide !== 'function') {
+            return;
+        }
+        onRestartGuide();
+        addNotification(t('guide.restart_guide_started', 'Guide started.'), 'info');
     };
 
     const addAutoInstallMod = async () => {
@@ -1385,6 +1394,26 @@ function Settings({ mode = 'default' }) {
                                                     >
                                                         <Trash2 className="h-3.5 w-3.5" />
                                                         {t('settings.maintenance.factory_reset_btn')}
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div>
+                                                        <h3 className="font-semibold text-foreground text-sm">{t('guide.restart_guide')}</h3>
+                                                        <p className="text-xs text-muted-foreground mt-1">
+                                                            {t('guide.restart_guide_desc')}
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={handleRestartGuideNow}
+                                                        className="border-primary/30 text-foreground hover:bg-primary/10"
+                                                    >
+                                                        <Compass className="h-3.5 w-3.5" />
+                                                        {t('guide.restart_guide')}
                                                     </Button>
                                                 </div>
                                             </div>

@@ -141,34 +141,37 @@ function TopBar({
         {appSettings?.showQuickSwitchButton !== false && (
           <>
             <TooltipProvider>
-              <ToggleGroup
-                type="single"
-                value={currentMode}
-                onValueChange={(value) => value && onModeSelect(value)}
-                className="gap-1"
-              >
-                {modeButtons.map(({ value, label, icon: Icon }) => (
-                  <Tooltip key={value}>
-                    <TooltipTrigger asChild>
-                      <ToggleGroupItem
-                        value={value}
-                        aria-label={label}
-                        className={cn(
-                          "h-8 w-8 rounded-lg px-0",
-                          currentMode === value
-                            ? "bg-muted text-foreground shadow-sm hover:bg-muted hover:text-foreground"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        <Icon className="h-4 w-4" />
-                      </ToggleGroupItem>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p>{label}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </ToggleGroup>
+              <div data-guide-id="mode-switcher">
+                <ToggleGroup
+                  type="single"
+                  value={currentMode}
+                  onValueChange={(value) => value && onModeSelect(value)}
+                  className="gap-1"
+                >
+                  {modeButtons.map(({ value, label, icon: Icon }) => (
+                    <Tooltip key={value}>
+                      <TooltipTrigger asChild>
+                        <ToggleGroupItem
+                          value={value}
+                          aria-label={label}
+                          data-guide-id={`mode-switch-${value}`}
+                          className={cn(
+                            "h-8 w-8 rounded-lg px-0",
+                            currentMode === value
+                              ? "bg-muted text-foreground shadow-sm hover:bg-muted hover:text-foreground"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </ToggleGroupItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>{label}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </ToggleGroup>
+              </div>
             </TooltipProvider>
 
             <Button
