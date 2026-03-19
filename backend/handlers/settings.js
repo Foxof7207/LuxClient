@@ -48,10 +48,12 @@ module.exports = (ipcMain) => {
             interval: 60,
             maxBackups: 10
         },
+        startPage: 'dashboard',
         language: 'en',
         hasAcceptedToS: false,
         hasSelectedLanguage: false,
         hasSelectedThemeMode: true,
+        hasSelectedStartupMode: true,
         guidePrompts: {
             launcher: true,
             server: true,

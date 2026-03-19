@@ -29,6 +29,7 @@ import UpdateNotification from './components/UpdateNotification';
 import AgreementModal from './components/AgreementModal';
 import LanguageSelectionModal from './components/LanguageSelectionModal';
 import ThemeModeSelectionModal from './components/ThemeModeSelectionModal';
+import StartupModeSelectionModal from './components/StartupDefaultModeModal';
 import LoadingOverlay from './components/LoadingOverlay';
 import WindowControls from './components/WindowControls';
 import CrashModal from './components/CrashModal';
@@ -105,6 +106,27 @@ const GUIDE_PROMPT_SESSION_DEFAULTS: Record<GuideMode, boolean> = {
     server: false,
     client: false,
     tools: false
+};
+
+const resolveStartupDestination = (startPageSetting) => {
+    const requestedView = typeof startPageSetting === 'string' ? startPageSetting : 'dashboard';
+
+    switch (requestedView) {
+        case 'server-dashboard':
+            return { mode: 'server', view: 'server-dashboard' };
+        case 'tools-dashboard':
+            return { mode: 'tools', view: 'tools-dashboard' };
+        case 'open-client':
+            if (isFeatureEnabled('openClientPage')) {
+                return { mode: 'client', view: 'open-client' };
+            }
+            return { mode: 'launcher', view: 'dashboard' };
+        case 'library':
+            return { mode: 'launcher', view: 'library' };
+        case 'dashboard':
+        default:
+            return { mode: 'launcher', view: 'dashboard' };
+    }
 };
 
 function App() {
@@ -266,11 +288,11 @@ function App() {
         Analytics.init();
 
         const checkSession = async () => {
-            let startPage = 'dashboard';
+            let startupDestination = resolveStartupDestination('dashboard');
             try {
                 const settingsRes = await window.electronAPI?.getSettings();
                 if (settingsRes.success && settingsRes.settings.startPage) {
-                    startPage = settingsRes.settings.startPage;
+                    startupDestination = resolveStartupDestination(settingsRes.settings.startPage);
                 }
             } catch (e) { }
 
@@ -302,7 +324,8 @@ function App() {
                     Analytics.setProfile(profile);
                 }
             }
-            setCurrentView(startPage);
+            setCurrentMode(startupDestination.mode);
+            setCurrentView(startupDestination.view);
         };
 
         const loadTheme = async () => {
@@ -464,6 +487,7 @@ function App() {
         const newSettings = {
             ...appSettings,
             hasSelectedThemeMode: true,
+            hasSelectedStartupMode: false,
             theme: nextTheme
         };
 
@@ -472,6 +496,25 @@ function App() {
             setAppSettings(newSettings);
             setTheme(nextTheme);
             applyTheme(nextTheme);
+        }
+    };
+
+    const handleStartupModeSelect = async (startPage) => {
+        const newSettings = {
+            ...appSettings,
+            startPage,
+            hasSelectedStartupMode: true
+        };
+        const res = await window.electronAPI.saveSettings(newSettings);
+        if (res.success) {
+            const startupDestination = resolveStartupDestination(startPage);
+            setAppSettings(newSettings);
+            setSelectedInstance(null);
+            setSelectedServer(null);
+            startTransition(() => {
+                setCurrentMode(startupDestination.mode);
+                setCurrentView(startupDestination.view);
+            });
         }
     };
 
@@ -554,19 +597,19 @@ function App() {
                 console.error("Failed to prefetch skin", e);
             }
         }
-        let startPage = 'dashboard';
+        let startupDestination = resolveStartupDestination('dashboard');
         try {
             const settingsRes = await window.electronAPI.getSettings();
             if (settingsRes.success && settingsRes.settings.startPage) {
-                startPage = settingsRes.settings.startPage;
+                startupDestination = resolveStartupDestination(settingsRes.settings.startPage);
             }
         } catch (e) { }
 
         startTransition(() => {
             setUserProfile(profile);
             Analytics.setProfile(profile);
-            setCurrentView(startPage);
-            setCurrentMode('launcher');
+            setCurrentMode(startupDestination.mode);
+            setCurrentView(startupDestination.view);
         });
     };
 
@@ -659,6 +702,12 @@ function App() {
         appSettings.hasSelectedLanguage === true &&
         appSettings.hasAcceptedToS === true &&
         appSettings.hasSelectedThemeMode === false;
+    const isStartupModeSelectionOpen =
+        !isInitialLoading &&
+        appSettings.hasSelectedLanguage === true &&
+        appSettings.hasAcceptedToS === true &&
+        appSettings.hasSelectedThemeMode === true &&
+        appSettings.hasSelectedStartupMode === false;
     const canAccessSkins = Boolean(userProfile) && !isGuest;
     const guideSteps = React.useMemo(() => getGuideSteps(guideMode, { canAccessSkins }), [guideMode, canAccessSkins]);
     const isGuidePromptBlockedBySetup =
@@ -666,7 +715,8 @@ function App() {
         isLoginView ||
         isLanguageSelectionOpen ||
         isAgreementModalOpen ||
-        isThemeModeSelectionOpen;
+        isThemeModeSelectionOpen ||
+        isStartupModeSelectionOpen;
     const isCommandPaletteAvailable =
         !isGuidePromptBlockedBySetup &&
         !isGuideRunning &&
@@ -924,6 +974,10 @@ function App() {
 
             {isThemeModeSelectionOpen && (
                 <ThemeModeSelectionModal onSelect={handleThemeModeSelect} />
+            )}
+
+            {isStartupModeSelectionOpen && (
+                <StartupModeSelectionModal onSelect={handleStartupModeSelect} />
             )}
 
             {guidePromptMode && (

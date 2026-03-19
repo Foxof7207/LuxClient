@@ -73,7 +73,6 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
         minimalMode: false,
         enableAutoInstallMods: false,
         autoInstallMods: [],
-        showQuickSwitchButton: true,
         enableSmartLogAnalytics: true,
         language: 'en_us',
         startPage: 'dashboard',
@@ -215,10 +214,20 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                     ...(res.settings.cloudBackupSettings || {})
                 }
             };
+            delete loadedSettings.showQuickSwitchButton;
             const languageMap = { 'en': 'en_us', 'de': 'de_de' };
             if (languageMap[loadedSettings.language]) {
                 loadedSettings.language = languageMap[loadedSettings.language];
             }
+
+            const validStartupPages = ['dashboard', 'open-client', 'server-dashboard', 'tools-dashboard'];
+            if (!validStartupPages.includes(loadedSettings.startPage)) {
+                loadedSettings.startPage = 'dashboard';
+            }
+            if (!isFeatureEnabled('openClientPage') && loadedSettings.startPage === 'open-client') {
+                loadedSettings.startPage = 'dashboard';
+            }
+
             setSettings(loadedSettings);
             initialSettingsRef.current = loadedSettings;
         }
@@ -552,8 +561,12 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="dashboard">{t('common.dashboard')}</SelectItem>
-                                            <SelectItem value="library">{t('common.library')}</SelectItem>
+                                            <SelectItem value="dashboard">{t('common.launcher', 'Launcher')}</SelectItem>
+                                            {isFeatureEnabled('openClientPage') && (
+                                                <SelectItem value="open-client">{t('common.client', 'Client')}</SelectItem>
+                                            )}
+                                            <SelectItem value="server-dashboard">{t('common.server', 'Server')}</SelectItem>
+                                            <SelectItem value="tools-dashboard">{t('common.useful_tools', 'Useful Tools')}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -596,17 +609,23 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                                 </Select>
                             </div>
 
-                            {!isClientSettings && (
-                                <>
-                                    <Separator />
-                                    <ToggleBox
-                                        checked={settings.showQuickSwitchButton || false}
-                                        onChange={(val) => handleChange('showQuickSwitchButton', val)}
-                                        label={t('settings.general.quick_switch_button')}
-                                        description={t('settings.general.quick_switch_button_desc')}
-                                    />
-                                </>
-                            )}
+                            <Separator />
+
+                            <div className="flex items-center justify-between gap-4 flex-wrap">
+                                <div className="flex-1 min-w-[200px]">
+                                    <Label className="text-foreground">{t('guide.restart_guide')}</Label>
+                                    <p className="text-xs text-muted-foreground mt-1">{t('guide.restart_guide_desc')}</p>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleRestartGuideNow}
+                                    className="border-primary/30 text-foreground hover:bg-primary/10"
+                                >
+                                    <Compass className="h-3.5 w-3.5" />
+                                    {t('guide.restart_guide')}
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -1394,26 +1413,6 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                                                     >
                                                         <Trash2 className="h-3.5 w-3.5" />
                                                         {t('settings.maintenance.factory_reset_btn')}
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
-                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                    <div>
-                                                        <h3 className="font-semibold text-foreground text-sm">{t('guide.restart_guide')}</h3>
-                                                        <p className="text-xs text-muted-foreground mt-1">
-                                                            {t('guide.restart_guide_desc')}
-                                                        </p>
-                                                    </div>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={handleRestartGuideNow}
-                                                        className="border-primary/30 text-foreground hover:bg-primary/10"
-                                                    >
-                                                        <Compass className="h-3.5 w-3.5" />
-                                                        {t('guide.restart_guide')}
                                                     </Button>
                                                 </div>
                                             </div>

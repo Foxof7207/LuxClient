@@ -138,53 +138,51 @@ function TopBar({
           M
         </div>
 
-        {appSettings?.showQuickSwitchButton !== false && (
-          <>
-            <TooltipProvider>
-              <div data-guide-id="mode-switcher">
-                <ToggleGroup
-                  type="single"
-                  value={currentMode}
-                  onValueChange={(value) => value && onModeSelect(value)}
-                  className="gap-1"
-                >
-                  {modeButtons.map(({ value, label, icon: Icon }) => (
-                    <Tooltip key={value}>
-                      <TooltipTrigger asChild>
-                        <ToggleGroupItem
-                          value={value}
-                          aria-label={label}
-                          data-guide-id={`mode-switch-${value}`}
-                          className={cn(
-                            "h-8 w-8 rounded-lg px-0",
-                            currentMode === value
-                              ? "bg-muted text-foreground shadow-sm hover:bg-muted hover:text-foreground"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </ToggleGroupItem>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <p>{label}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </ToggleGroup>
-              </div>
-            </TooltipProvider>
+        <>
+          <TooltipProvider>
+            <div data-guide-id="mode-switcher">
+              <ToggleGroup
+                type="single"
+                value={currentMode}
+                onValueChange={(value) => value && onModeSelect(value)}
+                className="gap-1"
+              >
+                {modeButtons.map(({ value, label, icon: Icon }) => (
+                  <Tooltip key={value}>
+                    <TooltipTrigger asChild>
+                      <ToggleGroupItem
+                        value={value}
+                        aria-label={label}
+                        data-guide-id={`mode-switch-${value}`}
+                        className={cn(
+                          "h-8 w-8 rounded-lg px-0",
+                          currentMode === value
+                            ? "bg-muted text-foreground shadow-sm hover:bg-muted hover:text-foreground"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </ToggleGroupItem>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>{label}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </ToggleGroup>
+            </div>
+          </TooltipProvider>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-10 gap-2.5 rounded-xl px-2 lg:px-3.5 text-sm font-semibold text-muted-foreground hidden sm:flex"
-              onClick={() => onNavigate('news')}
-            >
-              <Newspaper className="h-4 w-4" />
-              <span className="hidden lg:inline">{t('common.news', 'News')}</span>
-            </Button>
-          </>
-        )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 gap-2.5 rounded-xl px-2 lg:px-3.5 text-sm font-semibold text-muted-foreground hidden sm:flex"
+            onClick={() => onNavigate('news')}
+          >
+            <Newspaper className="h-4 w-4" />
+            <span className="hidden lg:inline">{t('common.news', 'News')}</span>
+          </Button>
+        </>
       </div>
 
       <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 no-drag pointer-events-none" style={{ maxWidth: 'calc(100% - 480px)' }}>
