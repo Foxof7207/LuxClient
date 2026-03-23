@@ -130,6 +130,92 @@ async function getFolderSize(directory) {
         }
     }
     return size;
+// External launcher profile support (Modrinth & CurseForge)
+function normalizeLoaderFromString(value) {
+    const str = String(value || '').trim().toLowerCase();
+    const loaders = {
+        fabric: 'fabric', quilt: 'quilt', forge: 'forge', neoforge: 'neoforge',
+        vanilla: 'vanilla', paper: 'paper', spigot: 'spigot', bukkit: 'bukkit',
+        purpur: 'purpur', folia: 'folia'
+    };
+    return loaders[str] || (str ? str : 'vanilla');
+}
+
+function getExternalLauncherRoots() {
+    if (process.platform !== 'win32') return [];
+    const homeDir = os.homedir();
+    return [
+        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'profiles'),
+        path.join(homeDir, 'curseforge', 'minecraft', 'Instances')
+    ];
+}
+
+async function readExternalProfileConfig(profilePath, sourceLauncher) {
+    const fallbackConfig = {
+        name: path.basename(profilePath),
+        version: '',
+        loader: 'vanilla',
+        icon: '',
+        externalPath: profilePath,
+        externalSource: sourceLauncher,
+        externalManaged: true
+    };
+
+    try {
+        if (sourceLauncher === 'modrinth') {
+            const profileJsonPath = path.join(profilePath, 'profile.json');
+            if (await fs.pathExists(profileJsonPath)) {
+                const profile = await fs.readJson(profileJsonPath);
+                fallbackConfig.name = profile.name || fallbackConfig.name;
+                fallbackConfig.version = profile.metadata?.mc_version || '';
+                fallbackConfig.loader = normalizeLoaderFromString(profile.metadata?.loader_name || '');
+            } else {
+                // Heuristic detection
+                const dirContents = await fs.readdir(profilePath).catch(() => []);
+                if (dirContents.includes('.fabric')) fallbackConfig.loader = 'fabric';
+                else if (dirContents.includes('.quilt')) fallbackConfig.loader = 'quilt';
+            }
+        } else if (sourceLauncher === 'curseforge') {
+            const minecraftInstancePath = path.join(profilePath, 'minecraftinstance.json');
+            if (await fs.pathExists(minecraftInstancePath)) {
+                const instance = await fs.readJson(minecraftInstancePath);
+                fallbackConfig.name = instance.name || fallbackConfig.name;
+                fallbackConfig.version = instance.javaVersion?.majorVersion || '';
+                if (instance.baseModLoader) {
+                    const loaderName = instance.baseModLoader.name || instance.baseModLoader.forgeVersion || '';
+                    fallbackConfig.loader = normalizeLoaderFromString(loaderName);
+                }
+            }
+        }
+    } catch (e) {
+        // Use fallback config on error
+    }
+    return fallbackConfig;
+}
+
+async function discoverExternalProfiles() {
+    const profiles = [];
+    if (process.platform !== 'win32') return profiles;
+    const externalRoots = getExternalLauncherRoots();
+
+    for (const sourcePath of externalRoots) {
+        const sourceLauncher = sourcePath.includes('Modrinth') ? 'modrinth' : 'curseforge';
+        try {
+            if (!await fs.pathExists(sourcePath)) continue;
+            const dirs = await fs.readdir(sourcePath);
+            for (const dir of dirs) {
+                const profilePath = path.join(sourcePath, dir);
+                if ((await fs.stat(profilePath)).isDirectory()) {
+                    const config = await readExternalProfileConfig(profilePath, sourceLauncher);
+                    profiles.push(config);
+                }
+            }
+        } catch (e) {
+            // Continue on error
+        }
+    }
+    return profiles;
+}
 }
 
 const GAME_MODES = {
@@ -1649,13 +1735,14 @@ module.exports = (ipcMain, win) => {
                 return [];
             }
         });
-
         ipcMain.handle('instance:get-log-files', async (_, instanceName) => {
             try {
-                console.log(`Getting log files for: ${instanceName}`);
                 const instanceDir = path.join(instancesDir, instanceName);
                 const logsDir = path.join(instanceDir, 'logs');
-                const logFiles = [];
+                        if (baseDirs.length === 0) {
+                            // Return external profiles if no LuxClient dirs
+                            return await discoverExternalProfiles();
+                        }
                 const installLogPath = path.join(instanceDir, 'install.log');
                 if (await fs.pathExists(installLogPath)) {
                     const stats = await fs.stat(installLogPath);
@@ -1667,6 +1754,15 @@ module.exports = (ipcMain, win) => {
                 }
 
                 if (await fs.pathExists(logsDir)) {
+                // Add external profiles
+                const externalProfiles = await discoverExternalProfiles();
+                for (const profile of externalProfiles) {
+                    const key = profile.name;
+                    if (!instancesByName.has(key)) {
+                        instancesByName.set(key, profile);
+                    }
+                }
+
                     const files = await fs.readdir(logsDir);
                     for (const file of files) {
                         if (file.endsWith('.log') || file.endsWith('.log.gz')) {
@@ -1689,7 +1785,6 @@ module.exports = (ipcMain, win) => {
 
         ipcMain.handle('instance:get-worlds', async (_, instanceName) => {
             try {
-                console.log(`Getting worlds for: ${instanceName}`);
                 const instanceDir = path.join(instancesDir, instanceName);
                 const savesDir = path.join(instanceDir, 'saves');
                 if (!await fs.pathExists(savesDir)) return { success: true, worlds: [] };
@@ -2341,12 +2436,32 @@ module.exports = (ipcMain, win) => {
         });
 
         ipcMain.handle('instance:open-folder', async (_, instanceName) => {
-            const instancePath = path.join(instancesDir, instanceName);
-            if (await fs.pathExists(instancePath)) {
-                await shell.openPath(instancePath);
-                return { success: true };
+            try {
+                // Try LuxClient directory first
+                const instancePath = path.join(instancesDir, instanceName);
+                if (await fs.pathExists(instancePath)) {
+                    await shell.openPath(instancePath);
+                    return { success: true };
+                }
+                // Search in external launcher directories (Modrinth/CurseForge)
+                if (process.platform === 'win32') {
+                    const homeDir = os.homedir();
+                    const externalRoots = [
+                        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'profiles'),
+                        path.join(homeDir, 'curseforge', 'minecraft', 'Instances')
+                    ];
+                    for (const rootDir of externalRoots) {
+                        const externalPath = path.join(rootDir, instanceName);
+                        if (await fs.pathExists(externalPath)) {
+                            await shell.openPath(externalPath);
+                            return { success: true };
+                        }
+                    }
+                }
+                return { success: false, error: 'Instance folder not found' };
+            } catch (e) {
+                return { success: false, error: e.message };
             }
-            return { success: false, error: 'Instance folder not found' };
         });
         ipcMain.handle('instance:delete', async (_, name) => {
             try {
