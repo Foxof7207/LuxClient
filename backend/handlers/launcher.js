@@ -7,6 +7,108 @@ const store = new Store();
 const backupManager = require('../backupManager');
 const { getProcessStats } = require('../utils/process-utils');
 const { resolvePrimaryInstancesDir, resolveInstanceDirByName } = require('../utils/instances-path');
+
+function normalizeExternalRequestName(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function stripExternalSuffix(value) {
+    return String(value || '')
+        .replace(/\s+\((modrinth|curseforge)(?:\s+\d+)?\)$/i, '')
+        .trim();
+}
+
+function getExternalLauncherRoots() {
+    if (process.platform !== 'win32') return [];
+
+    const homeDir = require('os').homedir();
+    const roamingDir = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
+
+    return [
+        { source: 'modrinth', baseDir: path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'profiles') },
+        { source: 'modrinth', baseDir: path.join(roamingDir, 'com.modrinth.theseus', 'profiles') },
+        { source: 'curseforge', baseDir: path.join(homeDir, 'curseforge', 'minecraft', 'Instances') }
+    ];
+}
+
+async function findExternalProfileByDisplayName(instanceName) {
+    const requested = normalizeExternalRequestName(instanceName);
+    if (!requested) return null;
+
+    const stripped = normalizeExternalRequestName(stripExternalSuffix(instanceName));
+
+    const roots = getExternalLauncherRoots();
+    for (const root of roots) {
+        const { source, baseDir } = root;
+        if (!await fs.pathExists(baseDir)) continue;
+
+        let entries = [];
+        try {
+            entries = await fs.readdir(baseDir, { withFileTypes: true });
+        } catch (_) {
+            continue;
+        }
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+
+            const dirName = String(entry.name || '').trim();
+            const dirLower = dirName.toLowerCase();
+            const sourceLabel = source === 'curseforge' ? 'curseforge' : 'modrinth';
+
+            if (
+                dirLower === requested ||
+                dirLower === stripped ||
+                `${dirLower} (${sourceLabel})` === requested
+            ) {
+                return { source, path: path.join(baseDir, dirName) };
+            }
+
+            if (source === 'modrinth') {
+                const profilePath = path.join(baseDir, dirName, 'profile.json');
+                if (!await fs.pathExists(profilePath)) continue;
+
+                try {
+                    const profile = await fs.readJson(profilePath);
+                    const profileName = String(profile?.name || '').trim().toLowerCase();
+                    if (!profileName) continue;
+
+                    if (
+                        profileName === requested ||
+                        profileName === stripped ||
+                        `${profileName} (${sourceLabel})` === requested
+                    ) {
+                        return { source, path: path.join(baseDir, dirName) };
+                    }
+                } catch (_) {
+                }
+            }
+
+            if (source === 'curseforge') {
+                const profilePath = path.join(baseDir, dirName, 'minecraftinstance.json');
+                if (!await fs.pathExists(profilePath)) continue;
+
+                try {
+                    const profile = await fs.readJson(profilePath);
+                    const profileName = String(profile?.name || '').trim().toLowerCase();
+                    if (!profileName) continue;
+
+                    if (
+                        profileName === requested ||
+                        profileName === stripped ||
+                        `${profileName} (${sourceLabel})` === requested
+                    ) {
+                        return { source, path: path.join(baseDir, dirName) };
+                    }
+                } catch (_) {
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
 module.exports = (ipcMain, mainWindow) => {
 
     const runningInstances = new Map();
@@ -213,6 +315,15 @@ Add-Type -TypeDefinition $code -Language CSharp
         activeLaunches.set(instanceName, { cancelled: false });
 
         try {
+            const externalProfile = await findExternalProfileByDisplayName(instanceName);
+            if (externalProfile) {
+                activeLaunches.delete(instanceName);
+                return {
+                    success: false,
+                    error: 'External profiles from Modrinth/CurseForge cannot be launched directly by LuxClient. Please launch them from their original launcher.'
+                };
+            }
+
             const fallbackInstanceDir = path.join(resolvePrimaryInstancesDir(), instanceName);
             const instanceDir = resolveInstanceDirByName(instanceName) || fallbackInstanceDir;
             const configPath = path.join(instanceDir, 'instance.json');

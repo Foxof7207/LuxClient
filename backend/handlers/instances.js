@@ -100,6 +100,169 @@ function inferVersionFromName(name) {
     return match ? match[0] : '';
 }
 
+async function inferVersionFromProfileDirectory(profileDir) {
+    const versionRoots = [
+        path.join(profileDir, '.minecraft', 'versions'),
+        path.join(profileDir, 'versions')
+    ];
+
+    for (const versionRoot of versionRoots) {
+        try {
+            if (!await fs.pathExists(versionRoot)) continue;
+            const entries = await fs.readdir(versionRoot, { withFileTypes: true });
+            const versionNames = entries
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => String(entry.name || '').trim())
+                .filter(Boolean)
+                .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+
+            for (const candidate of versionNames) {
+                const inferred = inferVersionFromName(candidate);
+                if (inferred) {
+                    return inferred;
+                }
+            }
+        } catch (e) {
+            // Ignore scan errors and continue to next candidate root.
+        }
+    }
+
+    return '';
+}
+
+async function inferVersionFromProfileLogs(profileDir) {
+    const logCandidates = [
+        path.join(profileDir, 'logs', 'launcher_log.txt'),
+        path.join(profileDir, 'logs', 'latest.log')
+    ];
+
+    const versionPatterns = [
+        /--fml\.mcVersion,\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /--version,\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /minecraft server version\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /minecraft\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i
+    ];
+
+    for (const logPath of logCandidates) {
+        try {
+            if (!await fs.pathExists(logPath)) continue;
+            const content = await fs.readFile(logPath, 'utf8');
+
+            for (const pattern of versionPatterns) {
+                const match = content.match(pattern);
+                if (match && match[1]) {
+                    return String(match[1]).trim();
+                }
+            }
+        } catch (e) {
+            // Ignore log parsing failures and continue.
+        }
+    }
+
+    return '';
+}
+
+async function inferPlaytimeFromWorldStats(profileDir) {
+    const savesDir = path.join(profileDir, 'saves');
+    if (!await fs.pathExists(savesDir)) return 0;
+
+    let totalTicks = 0;
+    let worldEntries = [];
+
+    try {
+        worldEntries = await fs.readdir(savesDir, { withFileTypes: true });
+    } catch (e) {
+        return 0;
+    }
+
+    for (const worldEntry of worldEntries) {
+        if (!worldEntry.isDirectory()) continue;
+
+        const statsDir = path.join(savesDir, worldEntry.name, 'stats');
+        if (!await fs.pathExists(statsDir)) continue;
+
+        let statFiles = [];
+        try {
+            statFiles = await fs.readdir(statsDir, { withFileTypes: true });
+        } catch (e) {
+            continue;
+        }
+
+        let worldMaxTicks = 0;
+        for (const statFile of statFiles) {
+            if (!statFile.isFile() || !String(statFile.name).toLowerCase().endsWith('.json')) continue;
+
+            try {
+                const statPath = path.join(statsDir, statFile.name);
+                const statData = await fs.readJson(statPath);
+                const customStats = statData?.stats?.['minecraft:custom'] || {};
+
+                const ticks = parseFiniteNumber(
+                    customStats['minecraft:play_time'] ||
+                    customStats['minecraft:play_one_minute'] ||
+                    0
+                ) || 0;
+
+                if (ticks > worldMaxTicks) {
+                    worldMaxTicks = ticks;
+                }
+            } catch (e) {
+                // Ignore invalid stat JSON entries.
+            }
+        }
+
+        totalTicks += worldMaxTicks;
+    }
+
+    // Minecraft stat ticks are 20 ticks per second.
+    return Math.max(0, Math.round(totalTicks * 50));
+}
+
+async function inferLastPlayedFromProfileActivity(profileDir) {
+    const candidates = [
+        path.join(profileDir, 'logs', 'latest.log'),
+        path.join(profileDir, 'logs', 'launcher_log.txt'),
+        path.join(profileDir, 'saves')
+    ];
+
+    let latest = 0;
+    for (const candidatePath of candidates) {
+        try {
+            if (!await fs.pathExists(candidatePath)) continue;
+            const stats = await fs.stat(candidatePath);
+            if (stats.mtimeMs > latest) {
+                latest = stats.mtimeMs;
+            }
+        } catch (e) {
+            // Ignore and continue.
+        }
+    }
+
+    return latest > 0 ? latest : null;
+}
+
+function parseFiniteNumber(value) {
+    if (value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeTimestampMs(value) {
+    const parsed = parseFiniteNumber(value);
+    if (parsed !== null && parsed > 0) {
+        // If this looks like seconds, convert to milliseconds.
+        if (parsed < 1e12) return parsed * 1000;
+        return parsed;
+    }
+
+    const dateParsed = Date.parse(String(value || ''));
+    if (Number.isFinite(dateParsed) && dateParsed > 0) {
+        return dateParsed;
+    }
+
+    return null;
+}
+
 function getMimeTypeFromImagePath(filePath) {
     const ext = path.extname(String(filePath || '')).toLowerCase();
     if (ext === '.png') return 'image/png';
@@ -257,14 +420,30 @@ async function readExternalProfileConfig(source, profileDir, fallbackName) {
 
         const hasFabricMarker = await fs.pathExists(path.join(profileDir, '.fabric'));
         const hasQuiltMarker = await fs.pathExists(path.join(profileDir, '.quilt'));
+        const metadata = profile && typeof profile.metadata === 'object' ? profile.metadata : {};
 
         const inferredLoaderFromName = inferLoaderFromName(fallbackName);
+        const loaderFromProfile = normalizeLoaderFromString(
+            profile?.loader ||
+            profile?.loader_id ||
+            profile?.loaderId ||
+            metadata?.loader ||
+            metadata?.loader_id ||
+            metadata?.loaderId ||
+            metadata?.loader_version?.id ||
+            metadata?.loaderVersion?.id ||
+            metadata?.loader_version ||
+            metadata?.loaderVersion ||
+            ''
+        );
 
         let detectedLoader = '';
         if (hasFabricMarker) {
             detectedLoader = 'fabric';
         } else if (hasQuiltMarker) {
             detectedLoader = 'quilt';
+        } else if (loaderFromProfile) {
+            detectedLoader = loaderFromProfile;
         } else if (inferredLoaderFromName) {
             detectedLoader = inferredLoaderFromName;
         } else {
@@ -272,7 +451,67 @@ async function readExternalProfileConfig(source, profileDir, fallbackName) {
             detectedLoader = 'vanilla';
         }
 
-        const version = String(profile?.game_version || profile?.gameVersion || inferVersionFromName(fallbackName) || '').trim();
+        let version = String(
+            profile?.game_version ||
+            profile?.gameVersion ||
+            profile?.minecraft_version ||
+            profile?.minecraftVersion ||
+            metadata?.game_version ||
+            metadata?.gameVersion ||
+            metadata?.minecraft_version ||
+            metadata?.minecraftVersion ||
+            inferVersionFromName(fallbackName) ||
+            ''
+        ).trim();
+
+        if (!version) {
+            version = await inferVersionFromProfileDirectory(profileDir);
+        }
+
+        if (!version) {
+            version = await inferVersionFromProfileLogs(profileDir);
+        }
+
+        const playtime = parseFiniteNumber(
+            profile?.playtime ||
+            profile?.time_played ||
+            profile?.timePlayed ||
+            profile?.submitted_time_played ||
+            profile?.submittedTimePlayed ||
+            metadata?.playtime ||
+            metadata?.time_played ||
+            metadata?.timePlayed ||
+            profile?.recent_time_played ||
+            profile?.recentTimePlayed ||
+            0
+        ) || 0;
+
+        const lastPlayed = normalizeTimestampMs(
+            profile?.last_played ||
+            profile?.lastPlayed ||
+            profile?.last_played_at ||
+            profile?.lastPlayedAt ||
+            profile?.date_modified ||
+            profile?.dateModified ||
+            metadata?.last_played ||
+            metadata?.lastPlayed ||
+            metadata?.last_played_at ||
+            metadata?.lastPlayedAt ||
+            metadata?.date_modified ||
+            metadata?.dateModified ||
+            null
+        );
+
+        let resolvedPlaytime = playtime;
+        if (resolvedPlaytime <= 0) {
+            resolvedPlaytime = await inferPlaytimeFromWorldStats(profileDir);
+        }
+
+        let resolvedLastPlayed = lastPlayed;
+        if (!resolvedLastPlayed) {
+            resolvedLastPlayed = await inferLastPlayedFromProfileActivity(profileDir);
+        }
+
         const name = String(profile?.name || fallbackName || '').trim() || fallbackName;
         const icon = await resolveExternalProfileIcon(source, profileDir, profile);
 
@@ -282,6 +521,8 @@ async function readExternalProfileConfig(source, profileDir, fallbackName) {
             name: name,
             version: version,
             loader: detectedLoader,
+            playtime: resolvedPlaytime,
+            lastPlayed: resolvedLastPlayed,
             icon: icon || null
         };
     }
@@ -2784,12 +3025,6 @@ module.exports = (ipcMain, win) => {
 
         ipcMain.handle('instance:open-folder', async (_, instanceName) => {
             try {
-                const localInstancePath = path.join(instancesDir, instanceName);
-                if (await fs.pathExists(localInstancePath)) {
-                    await shell.openPath(localInstancePath);
-                    return { success: true };
-                }
-
                 const mergedInstances = await getMergedInstances();
                 const normalizedName = String(instanceName || '').trim().toLowerCase();
                 const externalInstance = mergedInstances.find((entry) => {
@@ -2800,6 +3035,12 @@ module.exports = (ipcMain, win) => {
                 const externalPath = String(externalInstance?.externalPath || '').trim();
                 if (externalPath && await fs.pathExists(externalPath)) {
                     await shell.openPath(externalPath);
+                    return { success: true };
+                }
+
+                const localInstancePath = path.join(instancesDir, instanceName);
+                if (await fs.pathExists(localInstancePath)) {
+                    await shell.openPath(localInstancePath);
                     return { success: true };
                 }
 
@@ -2845,7 +3086,20 @@ module.exports = (ipcMain, win) => {
         });
         ipcMain.handle('instance:get-mods', async (_, instanceName) => {
             try {
-                const modsDir = path.join(instancesDir, instanceName, 'mods');
+                const mergedInstances = await getMergedInstances();
+                const normalizedName = String(instanceName || '').trim().toLowerCase();
+                const externalInstance = mergedInstances.find((entry) => {
+                    const entryName = String(entry?.name || '').trim().toLowerCase();
+                    return entryName === normalizedName && String(entry?.instanceType || '').toLowerCase() === 'external';
+                });
+
+                const resolvedBaseDir = (() => {
+                    const externalPath = String(externalInstance?.externalPath || '').trim();
+                    if (externalPath) return externalPath;
+                    return path.join(instancesDir, instanceName);
+                })();
+
+                const modsDir = path.join(resolvedBaseDir, 'mods');
                 await fs.ensureDir(modsDir);
                 const modCachePath = path.join(appData, 'mod_cache.json');
                 let modCache = {};
