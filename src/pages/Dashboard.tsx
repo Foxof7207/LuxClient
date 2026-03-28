@@ -342,6 +342,14 @@ function Dashboard({
   const [groupMethod, setGroupMethod] = useState('none');
   const [groupBySourceEnabled, setGroupBySourceEnabled] = useState(true);
   const [showCodeModal, setShowCodeModal] = useState(false);
+  const [showExportChoiceModal, setShowExportChoiceModal] = useState(false);
+  const [showExportCodeModal, setShowExportCodeModal] = useState(false);
+  const [exportTargetInstance, setExportTargetInstance] = useState(null);
+  const [exportCodeInstanceData, setExportCodeInstanceData] = useState(null);
+  const [exportCodeMods, setExportCodeMods] = useState([]);
+  const [exportCodeResourcePacks, setExportCodeResourcePacks] = useState([]);
+  const [exportCodeShaders, setExportCodeShaders] = useState([]);
+  const [isPreparingCodeExport, setIsPreparingCodeExport] = useState(false);
   const [showMoveFolderModal, setShowMoveFolderModal] = useState(false);
   const [folderTargetInstance, setFolderTargetInstance] = useState(null);
   const [folderInputPath, setFolderInputPath] = useState('');
@@ -605,6 +613,66 @@ function Dashboard({
     }
   };
 
+  const handleFileExport = async (instance) => {
+    try {
+      const exportResult = await window.electronAPI.exportInstance(instance.name);
+      if (exportResult.success) {
+        addNotification(`Exported to ${exportResult.path}`, 'success');
+      } else if (exportResult.error !== 'Cancelled') {
+        addNotification(`Export failed: ${exportResult.error}`, 'error');
+      }
+    } catch (e) {
+      addNotification(`Export failed: ${e.message}`, 'error');
+    }
+  };
+
+  const resetCodeExportState = () => {
+    setShowExportCodeModal(false);
+    setExportCodeInstanceData(null);
+    setExportCodeMods([]);
+    setExportCodeResourcePacks([]);
+    setExportCodeShaders([]);
+  };
+
+  const prepareCodeExport = async (instance) => {
+    setIsPreparingCodeExport(true);
+    try {
+      const [modsResult, resourcePacksResult, shadersResult] = await Promise.all([
+        window.electronAPI.getMods(instance.name),
+        window.electronAPI.getResourcePacks(instance.name),
+        window.electronAPI.getShaders(instance.name),
+      ]);
+
+      const mods = modsResult?.success && Array.isArray(modsResult.mods)
+        ? modsResult.mods.map((entry) => ({ ...entry, type: 'mod' }))
+        : [];
+      const resourcePacks = resourcePacksResult?.success && Array.isArray(resourcePacksResult.packs)
+        ? resourcePacksResult.packs.map((entry) => ({ ...entry, type: 'resourcepack' }))
+        : [];
+      const shaders = shadersResult?.success && Array.isArray(shadersResult.shaders)
+        ? shadersResult.shaders.map((entry) => ({ ...entry, type: 'shader' }))
+        : [];
+
+      if (!modsResult?.success || !resourcePacksResult?.success || !shadersResult?.success) {
+        addNotification(
+          t('dashboard.export_choice.partial_load_warning', 'Some content could not be read and will be skipped.'),
+          'error'
+        );
+      }
+
+      setExportCodeInstanceData(instance);
+      setExportCodeMods(mods);
+      setExportCodeResourcePacks(resourcePacks);
+      setExportCodeShaders(shaders);
+      setShowExportChoiceModal(false);
+      setShowExportCodeModal(true);
+    } catch (e) {
+      addNotification(`Failed to prepare code export: ${e.message}`, 'error');
+    } finally {
+      setIsPreparingCodeExport(false);
+    }
+  };
+
   const handleContextAction = async (action, instance) => {
     switch (action) {
       case 'add-to-actionbar':
@@ -702,16 +770,8 @@ function Dashboard({
         }
         break;
       case 'export':
-        try {
-          const exportResult = await window.electronAPI.exportInstance(instance.name);
-          if (exportResult.success) {
-            addNotification(`Exported to ${exportResult.path}`, 'success');
-          } else if (exportResult.error !== 'Cancelled') {
-            addNotification(`Export failed: ${exportResult.error}`, 'error');
-          }
-        } catch (e) {
-          addNotification(`Export failed: ${e.message}`, 'error');
-        }
+        setExportTargetInstance(instance);
+        setShowExportChoiceModal(true);
         break;
       case 'folder':
         window.electronAPI.openInstanceFolder(instance.name);
@@ -1630,6 +1690,19 @@ function Dashboard({
         />
       )}
 
+      {showExportCodeModal && exportCodeInstanceData && (
+        <ModpackCodeModal
+          isOpen={showExportCodeModal}
+          mode="export"
+          instance={exportCodeInstanceData}
+          instanceData={exportCodeInstanceData}
+          mods={exportCodeMods}
+          resourcePacks={exportCodeResourcePacks}
+          shaders={exportCodeShaders}
+          onClose={resetCodeExportState}
+        />
+      )}
+
       {showDeleteModal && (
         <ConfirmationModal
           title={t('dashboard.delete_title')}
@@ -1681,6 +1754,69 @@ function Dashboard({
             </Button>
             <Button type="button" size="sm" onClick={handleSaveFolderPath}>
               {t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showExportChoiceModal}
+        onOpenChange={(open) => {
+          setShowExportChoiceModal(open);
+          if (!open) setExportTargetInstance(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('dashboard.export_choice.title', 'Export instance')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {t('dashboard.export_choice.description', 'Choose how you want to export this instance.')}
+            </p>
+            {exportTargetInstance && (
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {`${t('dashboard.export_choice.target_prefix', 'Instance:')} ${exportTargetInstance.name}`}
+              </div>
+            )}
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                type="button"
+                onClick={() => exportTargetInstance && prepareCodeExport(exportTargetInstance)}
+                disabled={!exportTargetInstance || isPreparingCodeExport}
+                className="justify-start gap-2"
+              >
+                {isPreparingCodeExport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
+                {t('dashboard.export_choice.code', 'Export as Code')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  if (!exportTargetInstance) return;
+                  setShowExportChoiceModal(false);
+                  await handleFileExport(exportTargetInstance);
+                  setExportTargetInstance(null);
+                }}
+                disabled={!exportTargetInstance || isPreparingCodeExport}
+                className="justify-start gap-2"
+              >
+                <FileDown className="w-4 h-4" />
+                {t('dashboard.export_choice.file', 'Export as .mcpack file')}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowExportChoiceModal(false);
+                setExportTargetInstance(null);
+              }}
+            >
+              {t('common.cancel')}
             </Button>
           </DialogFooter>
         </DialogContent>

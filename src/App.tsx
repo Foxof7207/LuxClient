@@ -94,6 +94,19 @@ const LIGHT_LUX_THEME_PRESET = {
     textOnPrimary: '#fff4ea'
 };
 
+const normalizeThemeSchema = (theme = {}) => ({
+    ...theme,
+    primaryColor: theme.primaryColor || theme.primary || '#e26602',
+    backgroundColor: theme.backgroundColor || theme.bg || theme.background || '#111111',
+    surfaceColor: theme.surfaceColor || theme.surface || '#1c1c1c',
+    sidebarColor: typeof theme.sidebarColor === 'string'
+        ? theme.sidebarColor
+        : (typeof theme.sidebar === 'string' ? theme.sidebar : ''),
+    textOnBackground: theme.textOnBackground || theme.foreground || '#fafafa',
+    textOnSurface: theme.textOnSurface || theme.text || '#fafafa',
+    textOnPrimary: theme.textOnPrimary || '#0d0d0d',
+});
+
 const GUIDE_PROMPT_DEFAULTS: Record<GuideMode, boolean> = {
     launcher: true,
     server: true,
@@ -272,6 +285,11 @@ function App() {
     const startGuide = async (mode: GuideMode, disablePromptForMode = false) => {
         if (disablePromptForMode) {
             await saveGuidePromptPreference(mode, false);
+        } else {
+            const prefs = getGuidePromptPreferences();
+            if (prefs[mode] !== false) {
+                await saveGuidePromptPreference(mode, false);
+            }
         }
 
         guidePromptShownThisSessionRef.current[mode] = true;
@@ -384,7 +402,7 @@ function App() {
                 }
 
                 if (res.settings.theme) {
-                    const t = res.settings.theme;
+                    const t = normalizeThemeSchema(res.settings.theme);
                     setTheme(t);
                     applyTheme(t);
                 }
@@ -408,8 +426,9 @@ function App() {
         init();
 
         const removeThemeListener = window.electronAPI?.onThemeUpdated((newTheme) => {
-            setTheme(newTheme);
-            applyTheme(newTheme);
+            const normalizedTheme = normalizeThemeSchema(newTheme || {});
+            setTheme(normalizedTheme);
+            applyTheme(normalizedTheme);
         });
 
         const removeSettingsListener = window.electronAPI.onSettingsUpdated?.((newSettings) => {

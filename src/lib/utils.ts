@@ -40,6 +40,7 @@ export function updateShadcnVars(theme) {
   const root = document.documentElement;
   const primary = theme.primaryColor || '#e26602';
   const bg = theme.backgroundColor || '#0d1117';
+  const sidebarBase = theme.sidebarColor || bg;
   const surface = theme.surfaceColor || '#161b22';
   const textOnBackground = theme.textOnBackground || '#fafafa';
   const textOnSurface = theme.textOnSurface || '#fafafa';
@@ -54,6 +55,7 @@ export function updateShadcnVars(theme) {
   };
 
   const bgHsl = hexToHsl(bg);
+  const sidebarHsl = hexToHsl(sidebarBase);
   const surfaceHsl = hexToHsl(surface);
   const primaryHsl = hexToHsl(primary);
 
@@ -88,7 +90,7 @@ export function updateShadcnVars(theme) {
   root.style.setProperty('--border', borderColor);
   root.style.setProperty('--input', borderColor);
   root.style.setProperty('--ring', primaryHsl);
-  root.style.setProperty('--sidebar', bgHsl);
+  root.style.setProperty('--sidebar', sidebarHsl);
   root.style.setProperty('--sidebar-foreground', mutedFg);
   root.style.setProperty('--sidebar-accent', lighterBg);
   root.style.setProperty('--sidebar-accent-foreground', textOnBackgroundHsl);

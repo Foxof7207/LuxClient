@@ -77,8 +77,6 @@
         "no_news_available": "Inga nyheter tillgängliga",
         "theme_marketplace": "Theme Marketplace",
         "active": "Aktiv",
-        "navigate": "Navigera",
-        "select": "Välj",
         "close": "Stäng",
         "instances": "Instanser",
         "instance": "Instans",
@@ -188,7 +186,14 @@
         "instance_created": "Instansen \"{{name}}\" har skapats. Nedladdningen startar i bakgrunden.",
         "import_failed": "Import misslyckades: {{error}}",
         "create_failed": "Kunde inte skapa instans: {{error}}",
-        "pixel_editor_btn": "Pixel Editor"
+        "pixel_editor_btn": "Pixel Editor",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

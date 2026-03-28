@@ -77,8 +77,6 @@
         "no_news_available": "Nu sunt știri disponibile",
         "theme_marketplace": "Theme Marketplace",
         "active": "Activ",
-        "navigate": "Navighează",
-        "select": "Selectează",
         "close": "Închide",
         "instances": "Instanțe",
         "instance": "Instanță",
@@ -188,7 +186,14 @@
         "instance_created": "Instanța \"{{name}}\" a fost creată. Descărcarea începe în fundal.",
         "import_failed": "Importul a eșuat: {{error}}",
         "create_failed": "Eșec la crearea instanței: {{error}}",
-        "pixel_editor_btn": "Pixel Editor"
+        "pixel_editor_btn": "Pixel Editor",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

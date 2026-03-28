@@ -77,8 +77,6 @@
         "no_news_available": "Keine Neuigkeiten verfügbar",
         "theme_marketplace": "Theme Marketplace",
         "active": "Aktiv",
-        "navigate": "Navigiere",
-        "select": "Uswähle",
         "close": "Schliesse",
         "instances": "Instanze",
         "instance": "Instanz",
@@ -188,7 +186,14 @@
         "instance_created": "Instanz \"{{name}}\" erstellt. Download dort im Hintergrund.",
         "import_failed": "Import isch gscheitert: {{error}}",
         "create_failed": "Instanzerstellig isch gscheitert: {{error}}",
-        "pixel_editor_btn": "Pixel-Editor"
+        "pixel_editor_btn": "Pixel-Editor",
+        "export_choice": {
+            "title": "Instanz exportiere",
+            "description": "Wähl, wie du die Instanz exportiere wotsch.",
+            "code": "Als Code exportiere",
+            "file": "Als .mcpack-Datei exportiere",
+            "partial_load_warning": "Es hät Inhält, wo nöd gläse worde sind und übersprunge wärde."
+        }
     },
     "instance_details": {
         "tabs": {

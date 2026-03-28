@@ -177,6 +177,7 @@ const DEFAULT_THEME = {
   textOnBackground: "#fafafa",
   textOnSurface: "#fafafa",
   textOnPrimary: "#0d0d0d",
+  sidebarColor: "",
   glassBlur: 10,
   glassOpacity: 0.8,
   consoleOpacity: 0.8,
@@ -190,6 +191,23 @@ const DEFAULT_THEME = {
   fontFamily: "Poppins",
   customFonts: [],
 };
+
+const normalizePresetShape = (preset = {}) => ({
+  ...preset,
+  name: preset.name || preset.handle || 'Preset',
+  primary: preset.primary || preset.primaryColor || DEFAULT_THEME.primaryColor,
+  bg: preset.bg || preset.background || preset.backgroundColor || DEFAULT_THEME.backgroundColor,
+  surface: preset.surface || preset.surfaceColor || DEFAULT_THEME.surfaceColor,
+  textOnBackground: preset.textOnBackground || preset.foreground || DEFAULT_THEME.textOnBackground,
+  textOnSurface: preset.textOnSurface || preset.text || DEFAULT_THEME.textOnSurface,
+  textOnPrimary: preset.textOnPrimary || DEFAULT_THEME.textOnPrimary,
+  sidebarColor: preset.sidebarColor || preset.sidebar || '',
+  sidebarGlow: typeof preset.sidebarGlow === 'number' ? preset.sidebarGlow : DEFAULT_THEME.sidebarGlow,
+  globalGlow: typeof preset.globalGlow === 'number' ? preset.globalGlow : DEFAULT_THEME.globalGlow,
+  panelOpacity: typeof preset.panelOpacity === 'number' ? preset.panelOpacity : DEFAULT_THEME.panelOpacity,
+  bgOverlay: typeof preset.bgOverlay === 'number' ? preset.bgOverlay : DEFAULT_THEME.bgOverlay,
+  fontFamily: preset.fontFamily || DEFAULT_THEME.fontFamily,
+});
 
 const sanitizeTheme = (nextTheme) => {
   const availableFonts = new Set([
@@ -344,6 +362,7 @@ function Styling() {
       primary: theme.primaryColor,
       bg: theme.backgroundColor,
       surface: theme.surfaceColor,
+      sidebarColor: theme.sidebarColor || '',
       textOnBackground: theme.textOnBackground,
       textOnSurface: theme.textOnSurface,
       textOnPrimary: theme.textOnPrimary,
@@ -374,19 +393,21 @@ function Styling() {
   };
 
   const applyPreset = (p) => {
+    const normalizedPreset = normalizePresetShape(p);
     const nt = sanitizeTheme({
       ...theme,
-      primaryColor: p.primary,
-      backgroundColor: p.bg,
-      surfaceColor: p.surface,
-      textOnBackground: p.textOnBackground ?? theme.textOnBackground,
-      textOnSurface: p.textOnSurface ?? theme.textOnSurface,
-      textOnPrimary: p.textOnPrimary ?? theme.textOnPrimary,
-      sidebarGlow: p.sidebarGlow ?? theme.sidebarGlow,
-      globalGlow: p.globalGlow ?? theme.globalGlow,
-      panelOpacity: p.panelOpacity ?? theme.panelOpacity,
-      bgOverlay: p.bgOverlay ?? theme.bgOverlay,
-      fontFamily: p.fontFamily ?? theme.fontFamily,
+      primaryColor: normalizedPreset.primary,
+      backgroundColor: normalizedPreset.bg,
+      surfaceColor: normalizedPreset.surface,
+      textOnBackground: normalizedPreset.textOnBackground,
+      textOnSurface: normalizedPreset.textOnSurface,
+      textOnPrimary: normalizedPreset.textOnPrimary,
+      sidebarColor: normalizedPreset.sidebarColor,
+      sidebarGlow: normalizedPreset.sidebarGlow,
+      globalGlow: normalizedPreset.globalGlow,
+      panelOpacity: normalizedPreset.panelOpacity,
+      bgOverlay: normalizedPreset.bgOverlay,
+      fontFamily: normalizedPreset.fontFamily,
     });
     setTheme(nt);
     applyTheme(nt, true);

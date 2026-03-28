@@ -55,6 +55,7 @@ const electronAPI = {
     exportWorld: (instanceName, folderName) => ipcRenderer.invoke('instance:export-world', instanceName, folderName),
     getLogFiles: (instanceName) => ipcRenderer.invoke('instance:get-log-files', instanceName),
     getLog: (instanceName, filename) => ipcRenderer.invoke('instance:get-log', instanceName, filename),
+    uploadInstanceLog: (instanceName, filename) => ipcRenderer.invoke('instance:upload-log', instanceName, filename),
     launchGame: (instanceName, quickPlay) => ipcRenderer.invoke('launcher:launch', instanceName, quickPlay),
     getLiveLogs: (instanceName) => ipcRenderer.invoke('launcher:get-live-logs', instanceName),
     killGame: (instanceName) => ipcRenderer.invoke('launcher:kill', instanceName),

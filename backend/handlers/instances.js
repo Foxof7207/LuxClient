@@ -67,6 +67,36 @@ function buildInstanceFolderMetaKey(instance) {
     return `local:${name}`;
 }
 
+async function resolveInstanceBaseDir(instanceName) {
+    const normalizedName = String(instanceName || '').trim().toLowerCase();
+    let externalInstance = null;
+
+    try {
+        const mergedInstances = await getMergedInstances();
+        externalInstance = mergedInstances.find((entry) => {
+            const entryName = String(entry?.name || '').trim().toLowerCase();
+            return entryName === normalizedName && String(entry?.instanceType || '').toLowerCase() === 'external';
+        }) || null;
+    } catch (e) {
+        // If merged instance lookup fails we still fall back to local path lookup.
+    }
+
+    const externalPath = String(externalInstance?.externalPath || '').trim();
+    if (externalPath) {
+        return {
+            baseDir: externalPath,
+            externalInstance,
+            isExternal: true
+        };
+    }
+
+    return {
+        baseDir: path.join(instancesDir, instanceName),
+        externalInstance: null,
+        isExternal: false
+    };
+}
+
 function normalizeLoaderFromString(value) {
     let candidate = value;
 
@@ -2095,8 +2125,15 @@ module.exports = (ipcMain, win) => {
         ipcMain.handle('instance:get-resourcepacks', async (_, instanceName) => {
             console.log(`[Instances:RP] Getting resource packs for: ${instanceName}`);
             try {
-                const rpDir = path.join(instancesDir, instanceName, 'resourcepacks');
-                await fs.ensureDir(rpDir);
+                const { baseDir } = await resolveInstanceBaseDir(instanceName);
+                if (!baseDir || !await fs.pathExists(baseDir)) {
+                    return { success: true, packs: [] };
+                }
+
+                const rpDir = path.join(baseDir, 'resourcepacks');
+                if (!await fs.pathExists(rpDir)) {
+                    return { success: true, packs: [] };
+                }
 
                 const modCachePath = path.join(appData, 'mod_cache.json');
                 let modCache = {};
@@ -2191,8 +2228,15 @@ module.exports = (ipcMain, win) => {
         ipcMain.handle('instance:get-shaders', async (_, instanceName) => {
             console.log(`[Instances:Shaders] Getting shaders for: ${instanceName}`);
             try {
-                const shaderDir = path.join(instancesDir, instanceName, 'shaderpacks');
-                await fs.ensureDir(shaderDir);
+                const { baseDir } = await resolveInstanceBaseDir(instanceName);
+                if (!baseDir || !await fs.pathExists(baseDir)) {
+                    return { success: true, shaders: [] };
+                }
+
+                const shaderDir = path.join(baseDir, 'shaderpacks');
+                if (!await fs.pathExists(shaderDir)) {
+                    return { success: true, shaders: [] };
+                }
 
                 const modCachePath = path.join(appData, 'mod_cache.json');
                 let modCache = {};
@@ -2616,6 +2660,52 @@ module.exports = (ipcMain, win) => {
                 return { success: true, content };
             } catch (e) {
                 console.error('Error reading log:', e);
+                return { success: false, error: e.message };
+            }
+        });
+
+        ipcMain.handle('instance:upload-log', async (_, instanceName, filename = 'latest.log') => {
+            try {
+                const instanceDir = path.join(instancesDir, instanceName);
+                const logPath = filename === 'install.log'
+                    ? path.join(instanceDir, filename)
+                    : path.join(instanceDir, 'logs', filename);
+
+                if (!await fs.pathExists(logPath)) {
+                    return { success: false, error: 'Log file not found' };
+                }
+
+                let content = '';
+                if (filename.endsWith('.gz')) {
+                    const buffer = await fs.readFile(logPath);
+                    const decompressed = await gunzip(buffer);
+                    content = decompressed.toString('utf8');
+                } else {
+                    content = await fs.readFile(logPath, 'utf8');
+                }
+
+                if (!content || !content.trim()) {
+                    return { success: false, error: 'Log file is empty' };
+                }
+
+                const form = new URLSearchParams();
+                form.append('content', content);
+
+                const response = await axios.post('https://api.mclo.gs/1/log', form.toString(), {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    timeout: 15000
+                });
+
+                if (response?.data?.success && response?.data?.url) {
+                    return { success: true, url: response.data.url };
+                }
+
+                return {
+                    success: false,
+                    error: response?.data?.error || 'Upload to mclo.gs failed'
+                };
+            } catch (e) {
+                console.error('Error uploading log to mclo.gs:', e);
                 return { success: false, error: e.message };
             }
         });
@@ -3364,8 +3454,8 @@ module.exports = (ipcMain, win) => {
         });
         ipcMain.handle('instance:export', async (_, instanceName) => {
             try {
-                const instancePath = path.join(instancesDir, instanceName);
-                if (!await fs.pathExists(instancePath)) {
+                const { baseDir: instancePath, externalInstance } = await resolveInstanceBaseDir(instanceName);
+                if (!instancePath || !await fs.pathExists(instancePath)) {
                     return { success: false, error: 'Instance not found' };
                 }
                 const { filePath } = await dialog.showSaveDialog({
@@ -3379,7 +3469,26 @@ module.exports = (ipcMain, win) => {
                 const archive = archiver('zip', { zlib: { level: 9 } });
 
                 archive.pipe(output);
-                archive.file(path.join(instancePath, 'instance.json'), { name: 'instance.json' });
+                const instanceConfigPath = path.join(instancePath, 'instance.json');
+                if (await fs.pathExists(instanceConfigPath)) {
+                    archive.file(instanceConfigPath, { name: 'instance.json' });
+                } else {
+                    const fallbackConfig = sanitizeInstanceConfig({
+                        name: externalInstance?.name || instanceName,
+                        version: externalInstance?.version,
+                        loader: externalInstance?.loader,
+                        icon: externalInstance?.icon,
+                        loaderVersion: externalInstance?.loaderVersion,
+                        created: externalInstance?.created || Date.now(),
+                        playtime: externalInstance?.playtime || 0,
+                        lastPlayed: externalInstance?.lastPlayed || null,
+                        folderPath: externalInstance?.folderPath || '',
+                        instanceType: externalInstance?.instanceType,
+                        externalSource: externalInstance?.externalSource,
+                        externalPath: externalInstance?.externalPath
+                    });
+                    archive.append(JSON.stringify(fallbackConfig, null, 4), { name: 'instance.json' });
+                }
                 const modsPath = path.join(instancePath, 'mods');
                 if (await fs.pathExists(modsPath)) {
                     archive.directory(modsPath, 'mods');

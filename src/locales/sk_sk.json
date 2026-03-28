@@ -77,8 +77,6 @@
         "no_news_available": "Žiadne novinky nie sú dostupné",
         "theme_marketplace": "Theme Marketplace",
         "active": "Aktívny",
-        "navigate": "Navigovať",
-        "select": "Vybrať",
         "close": "Zavrieť",
         "instances": "Inštancie",
         "instance": "Inštancia",
@@ -188,7 +186,14 @@
         "instance_created": "Inštancia \"{{name}}\" bola vytvorená. Sťahovanie začína na pozadí.",
         "import_failed": "Import zlyhal: {{error}}",
         "create_failed": "Nepodarilo sa vytvoriť inštanciu: {{error}}",
-        "pixel_editor_btn": "Pixel Editor"
+        "pixel_editor_btn": "Pixel Editor",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

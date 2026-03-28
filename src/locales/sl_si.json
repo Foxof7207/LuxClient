@@ -77,8 +77,6 @@
         "no_news_available": "Ni razpoložljivih novic",
         "theme_marketplace": "Theme Marketplace",
         "active": "Aktivno",
-        "navigate": "Navigiraj",
-        "select": "Izberi",
         "close": "Zapri",
         "instances": "Instance",
         "instance": "Instanca",
@@ -188,7 +186,14 @@
         "instance_created": "Instanca \"{{name}}\" je ustvarjena. Prenos se pričenja v ozadju.",
         "import_failed": "Uvoz ni uspel: {{error}}",
         "create_failed": "Instance ni bilo mogoče ustvariti: {{error}}",
-        "pixel_editor_btn": "Pixel Editor"
+        "pixel_editor_btn": "Pixel Editor",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

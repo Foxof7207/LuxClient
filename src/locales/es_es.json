@@ -78,8 +78,6 @@
         "no_news_available": "No hay noticias disponibles",
         "theme_marketplace": "Theme Marketplace",
         "active": "Activo",
-        "navigate": "Navegar",
-        "select": "Seleccionar",
         "close": "Cerrar",
         "instances": "Instancias",
         "instance": "Instancia",
@@ -194,7 +192,14 @@
         "instance_created": "Instancia \"{{name}}\" creada. La descarga comenzará en segundo plano.",
         "import_failed": "Error al importar: {{error}}",
         "create_failed": "No se pudo crear la instancia: {{error}}",
-        "pixel_editor_btn": "Editor de Píxeles"
+        "pixel_editor_btn": "Editor de Píxeles",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

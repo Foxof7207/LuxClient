@@ -77,8 +77,6 @@
         "no_news_available": "Нет доступных новостей",
         "theme_marketplace": "Theme Marketplace",
         "active": "Активный",
-        "navigate": "Навигация",
-        "select": "Выбрать",
         "close": "Закрыть",
         "instances": "Экземпляры",
         "instance": "Экземпляр",
@@ -188,7 +186,14 @@
         "instance_created": "Сборка \"{{name}}\" создана. Скачивание началось в фоновом режиме.",
         "import_failed": "Ошибка импорта: {{error}}",
         "create_failed": "Не удалось создать сборку: {{error}}",
-        "pixel_editor_btn": "Пиксельный редактор"
+        "pixel_editor_btn": "Пиксельный редактор",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

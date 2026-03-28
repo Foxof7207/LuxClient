@@ -79,8 +79,6 @@
         "readonly": "Schreibgeschützt",
         "theme_marketplace": "Theme Marketplace",
         "active": "Aktiv",
-        "navigate": "Navigieren",
-        "select": "Auswählen",
         "close": "Schließen",
         "instances": "Instanzen",
         "instance": "Instanz",
@@ -190,7 +188,14 @@
         "instance_created": "Instanz \"{{name}}\" erstellt. Der Download startet im Hintergrund.",
         "import_failed": "Import fehlgeschlagen: {{error}}",
         "create_failed": "Instanzerstellung fehlgeschlagen: {{error}}",
-        "pixel_editor_btn": "Pixel-Editor"
+        "pixel_editor_btn": "Pixel-Editor",
+        "export_choice": {
+            "title": "Instanz exportieren",
+            "description": "Wähle, wie du diese Instanz exportieren möchtest.",
+            "code": "Als Code exportieren",
+            "file": "Als .mcpack-Datei exportieren",
+            "partial_load_warning": "Einige Inhalte konnten nicht gelesen werden und werden übersprungen."
+        }
     },
     "pixel_editor": {
         "title": "Pixel-Editor",

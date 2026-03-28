@@ -49,6 +49,7 @@ interface ElectronAPI {
   exportWorld: (instanceName: string, folderName: string) => Promise<any>;
   getLogFiles: (instanceName: string) => Promise<any>;
   getLog: (instanceName: string, filename: string) => Promise<any>;
+  uploadInstanceLog: (instanceName: string, filename: string) => Promise<any>;
   launchGame: (instanceName: string, quickPlay?: any) => Promise<any>;
   getLiveLogs: (instanceName: string) => Promise<any>;
   killGame: (instanceName: string) => Promise<any>;

@@ -25,6 +25,7 @@ module.exports = (ipcMain) => {
             primaryColor: '#22e07a',
             backgroundColor: '#0d1117',
             surfaceColor: '#161b22',
+            sidebarColor: '',
             textOnBackground: '#fafafa',
             textOnSurface: '#fafafa',
             textOnPrimary: '#0d0d0d',
@@ -62,12 +63,25 @@ module.exports = (ipcMain) => {
         }
     };
 
+    const normalizeThemeSchema = (theme = {}) => ({
+        ...theme,
+        primaryColor: theme.primaryColor || theme.primary || defaultSettings.theme.primaryColor,
+        backgroundColor: theme.backgroundColor || theme.bg || theme.background || defaultSettings.theme.backgroundColor,
+        surfaceColor: theme.surfaceColor || theme.surface || defaultSettings.theme.surfaceColor,
+        sidebarColor: typeof theme.sidebarColor === 'string'
+            ? theme.sidebarColor
+            : (typeof theme.sidebar === 'string' ? theme.sidebar : ''),
+        textOnBackground: theme.textOnBackground || theme.foreground || defaultSettings.theme.textOnBackground,
+        textOnSurface: theme.textOnSurface || theme.text || defaultSettings.theme.textOnSurface,
+        textOnPrimary: theme.textOnPrimary || defaultSettings.theme.textOnPrimary,
+    });
+
     const buildSettings = (settings = {}) => ({
         ...defaultSettings,
         ...settings,
         theme: {
             ...defaultSettings.theme,
-            ...(settings.theme || {})
+            ...normalizeThemeSchema(settings.theme || {})
         },
         backupSettings: {
             ...defaultSettings.backupSettings,

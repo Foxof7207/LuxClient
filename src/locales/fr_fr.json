@@ -78,8 +78,6 @@
         "no_news_available": "Aucune actualité disponible",
         "theme_marketplace": "Theme Marketplace",
         "active": "Actif",
-        "navigate": "Naviguer",
-        "select": "Sélectionner",
         "close": "Fermer",
         "instances": "Instances",
         "instance": "Instance",
@@ -189,7 +187,14 @@
         "instance_created": "Instance \"{{name}}\" créée. Le téléchargement commence en arrière-plan.",
         "import_failed": "L'importation a échoué : {{error}}",
         "create_failed": "Échec de la création de l'instance : {{error}}",
-        "pixel_editor_btn": "Éditeur de Pixels"
+        "pixel_editor_btn": "Éditeur de Pixels",
+        "export_choice": {
+            "title": "Export Instance",
+            "description": "Choose how you want to export this instance.",
+            "code": "Export as Code",
+            "file": "Export as .mcpack file",
+            "partial_load_warning": "Some content could not be read and will be skipped."
+        }
     },
     "instance_details": {
         "tabs": {

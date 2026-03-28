@@ -99,6 +99,35 @@ let splashWindow;
 let tray = null;
 let isQuiting = false;
 const isDeveloperMode = process.env.NODE_ENV === 'development';
+const updateAttemptStatePath = path.join(app.getPath('userData'), 'update-attempt-state.json');
+
+async function readUpdateAttemptState() {
+    try {
+        if (!await fs.pathExists(updateAttemptStatePath)) return {};
+        const data = await fs.readJson(updateAttemptStatePath);
+        return data && typeof data === 'object' ? data : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+async function writeUpdateAttemptState(nextState = {}) {
+    try {
+        await fs.writeJson(updateAttemptStatePath, nextState, { spaces: 2 });
+    } catch (e) {
+        // Non-fatal.
+    }
+}
+
+async function clearUpdateAttemptState() {
+    try {
+        if (await fs.pathExists(updateAttemptStatePath)) {
+            await fs.remove(updateAttemptStatePath);
+        }
+    } catch (e) {
+        // Non-fatal.
+    }
+}
 
 function createSplashWindow() {
     splashWindow = new BrowserWindow({
@@ -165,6 +194,19 @@ async function checkAndLaunch() {
             const needsUpdate = compareVersions(currentVersion, latestVersion) === 1;
 
             if (needsUpdate) {
+                const lastAttempt = await readUpdateAttemptState();
+                const sameVersion = String(lastAttempt?.version || '') === String(latestVersion || '');
+                const recentFailureWindowMs = 15 * 60 * 1000;
+                const wasInstallingRecently = sameVersion
+                    && String(lastAttempt?.status || '') === 'installing'
+                    && Date.now() - Number(lastAttempt?.ts || 0) < recentFailureWindowMs;
+
+                if (wasInstallingRecently) {
+                    splashWindow.webContents.send('updater:status', { status: 'Starting' });
+                    setTimeout(launchMain, 1500);
+                    return;
+                }
+
                 const platform = process.platform;
                 let asset = null;
                 if (platform === 'win32') {
@@ -184,6 +226,14 @@ async function checkAndLaunch() {
                     if (!safeAssetName || safeAssetName.startsWith('.')) {
                         throw new Error('Invalid update asset filename');
                     }
+
+                    await writeUpdateAttemptState({
+                        status: 'installing',
+                        version: latestVersion,
+                        ts: Date.now(),
+                        assetName: safeAssetName
+                    });
+
                     const targetPath = path.join(downloadDir, safeAssetName);
 
                     const downloadRes = await axios({
@@ -259,6 +309,7 @@ objShell.Run """" & WScript.Arguments(1) & """", 1, False`;
 }
 
 function launchMain() {
+    clearUpdateAttemptState();
     createWindow();
 }
 
