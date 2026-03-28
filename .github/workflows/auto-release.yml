@@ -120,24 +120,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Check release artifacts exist
-        id: relcheck
-        shell: bash
-        run: |
-          if [[ -d "release" ]] && compgen -G "release/*" > /dev/null; then
-            echo "has_release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_release=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Upload release artifacts
-        if: steps.relcheck.outputs.has_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-${{ needs.prepare.outputs.version }}
-          path: release/*
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/latest*.yml
           if-no-files-found: error
-          compression-level: 6
+          compression-level: 0
 
   release:
     needs: [prepare, build]
@@ -155,6 +154,7 @@ jobs:
           path: release-artifacts
 
       - name: Create GitHub release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
@@ -162,9 +162,33 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
-          files: release-artifacts/**
+          files: |
+            release-artifacts/*.exe
+            release-artifacts/*.exe.blockmap
+            release-artifacts/*.dmg
+            release-artifacts/*.dmg.blockmap
+            release-artifacts/*.zip
+            release-artifacts/*.zip.blockmap
+            release-artifacts/*.AppImage
+            release-artifacts/*.deb
+            release-artifacts/*.rpm
+            release-artifacts/latest*.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Discord – success
+        if: success()
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"✅ Lux ${{ needs.prepare.outputs.tag }} released\",\"description\":\"A new release has been published successfully.\n\n**[View Release](${{ steps.create_release.outputs.url }})**\",\"color\":3066993}]}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"
+
+      - name: Notify Discord – failure
+        if: failure()
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"❌ Release failed – Lux ${{ needs.prepare.outputs.tag }}\",\"description\":\"The release workflow failed. Check the [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\",\"color\":15158332}]}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"
 
   skip:
     needs: prepare
