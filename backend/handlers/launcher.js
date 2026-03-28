@@ -566,6 +566,114 @@ async function findExternalProfileByDisplayName(instanceName) {
     return null;
 }
 
+const CRASH_LOG_MAX_CHARS = 400000;
+
+function normalizeCompatibilityToken(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^["'\s]+|["'\s]+$/g, '');
+}
+
+function extractCompatibilityIssuesFromCrashLog(logContent) {
+    if (!logContent || typeof logContent !== 'string') return [];
+
+    const patterns = [
+        {
+            issueType: 'missing_dependency',
+            regex: /Mod\s+'([^']+)'\s+requires\s+mod\s+'([^']+)'(?:\s+any\s+version)?(?:\s+but\s+it\s+is\s+not\s+present)?/ig,
+            map: (match) => ({
+                modName: match[1],
+                dependencyName: match[2],
+                requiredVersion: null,
+                foundVersion: null,
+                sourceLine: match[0]
+            })
+        },
+        {
+            issueType: 'outdated_dependency',
+            regex: /mod\s+'([^']+)'\s+\(([^)]+)\)\s+([0-9A-Za-z.+\-]+)\s+requires\s+version\s+([^\s]+)\s+or\s+later\s+of\s+mod\s+'([^']+)'\s+\(([^)]+)\),\s+but\s+only\s+the\s+wrong\s+version\s+is\s+present:\s*([^!\r\n]+)/ig,
+            map: (match) => ({
+                modName: match[1] || match[2],
+                dependencyName: match[5] || match[6],
+                requiredVersion: match[4] || null,
+                foundVersion: match[7] || null,
+                sourceLine: match[0]
+            })
+        },
+        {
+            issueType: 'missing_dependency',
+            regex: /Could\s+not\s+find\s+required\s+mod:\s*([A-Za-z0-9_.\-]+)/ig,
+            map: (match) => ({
+                modName: null,
+                dependencyName: match[1],
+                requiredVersion: null,
+                foundVersion: null,
+                sourceLine: match[0]
+            })
+        }
+    ];
+
+    const issues = [];
+    const seen = new Set();
+
+    for (const rule of patterns) {
+        rule.regex.lastIndex = 0;
+        let match;
+        while ((match = rule.regex.exec(logContent)) !== null) {
+            const candidate = rule.map(match);
+            const key = [
+                rule.issueType,
+                normalizeCompatibilityToken(candidate.modName),
+                normalizeCompatibilityToken(candidate.dependencyName),
+                normalizeCompatibilityToken(candidate.requiredVersion),
+                normalizeCompatibilityToken(candidate.foundVersion)
+            ].join('|');
+
+            if (seen.has(key)) continue;
+            seen.add(key);
+            issues.push({
+                issueType: rule.issueType,
+                modName: candidate.modName || null,
+                dependencyName: candidate.dependencyName || null,
+                requiredVersion: candidate.requiredVersion || null,
+                foundVersion: candidate.foundVersion || null,
+                sourceLine: candidate.sourceLine || ''
+            });
+        }
+    }
+
+    return issues;
+}
+
+async function buildCrashLogContent(instanceDir, inMemoryLogs = []) {
+    const latestLogPath = path.join(instanceDir, 'logs', 'latest.log');
+    const debugLogPath = path.join(instanceDir, 'logs', 'debug.log');
+
+    const sections = [];
+
+    if (Array.isArray(inMemoryLogs) && inMemoryLogs.length > 0) {
+        sections.push(inMemoryLogs.join('\n'));
+    }
+
+    if (await fs.pathExists(latestLogPath)) {
+        sections.push(await fs.readFile(latestLogPath, 'utf8').catch(() => ''));
+    }
+
+    if (await fs.pathExists(debugLogPath)) {
+        sections.push(await fs.readFile(debugLogPath, 'utf8').catch(() => ''));
+    }
+
+    const combined = sections
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+        .join('\n\n');
+
+    if (!combined) return '';
+    if (combined.length <= CRASH_LOG_MAX_CHARS) return combined;
+    return combined.slice(-CRASH_LOG_MAX_CHARS);
+}
+
 module.exports = (ipcMain, mainWindow) => {
 
     const runningInstances = new Map();
@@ -1173,6 +1281,9 @@ Add-Type -TypeDefinition $code -Language CSharp
                         if (isCrash) {
                             console.log(`[Launcher] Crash/Early Exit detected for ${instanceName} (Exit code: ${code}, LogCrash: ${logCrashDetected}, Duration: ${sessionTime}ms).`);
 
+                            const crashLogContent = await buildCrashLogContent(instanceDir, liveLogs.get(instanceName) || []);
+                            const compatibilityIssues = extractCompatibilityIssuesFromCrashLog(crashLogContent);
+
                             let logUrl = null;
                             const settings = store.get('settings') || {};
                             if (settings.autoUploadLogs) {
@@ -1202,7 +1313,9 @@ Add-Type -TypeDefinition $code -Language CSharp
                             mainWindow.webContents.send('launcher:crash-report', {
                                 instanceName,
                                 exitCode: code,
-                                logUrl: logUrl
+                                logUrl: logUrl,
+                                logContent: crashLogContent,
+                                compatibilityIssues
                             });
                         }
                     } catch (err) {
