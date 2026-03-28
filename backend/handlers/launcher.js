@@ -115,6 +115,30 @@ function getExternalRuntimeRoot(externalProfile) {
     return '';
 }
 
+function buildGameVersionAliases(version) {
+    const value = String(version || '').trim();
+    if (!value) return [];
+
+    const aliases = [];
+    const addAlias = (entry) => {
+        const normalized = String(entry || '').trim();
+        if (!normalized) return;
+        if (!aliases.includes(normalized)) aliases.push(normalized);
+    };
+
+    addAlias(value);
+
+    if (/^\d+\.\d+(?:\.\d+)?$/.test(value)) {
+        if (value.startsWith('1.')) {
+            addAlias(value.slice(2));
+        } else {
+            addAlias(`1.${value}`);
+        }
+    }
+
+    return aliases;
+}
+
 function buildVersionIdCandidates({ version, loader, loaderVersion, explicitVersionId }) {
     const candidates = [];
     const addCandidate = (value) => {
@@ -124,37 +148,42 @@ function buildVersionIdCandidates({ version, loader, loaderVersion, explicitVers
     };
 
     addCandidate(explicitVersionId);
+    const versionAliases = buildGameVersionAliases(version);
 
     if (!loader || loader === 'vanilla') {
-        addCandidate(version);
+        for (const alias of versionAliases) addCandidate(alias);
         return candidates;
     }
 
-    switch (loader) {
-        case 'fabric':
-            addCandidate(`fabric-loader-${loaderVersion}-${version}`);
-            addCandidate(`fabric-${loaderVersion}-${version}`);
-            addCandidate(`${version}-${loaderVersion}`);
-            break;
-        case 'quilt':
-            addCandidate(`quilt-loader-${loaderVersion}-${version}`);
-            addCandidate(`quilt-${loaderVersion}-${version}`);
-            addCandidate(`${version}-${loaderVersion}`);
-            break;
-        case 'forge':
-            addCandidate(`forge-${loaderVersion}`);
-            addCandidate(`${version}-forge-${loaderVersion}`);
-            addCandidate(`${version}-${loaderVersion}`);
-            break;
-        case 'neoforge':
-            addCandidate(`neoforge-${loaderVersion}`);
-            addCandidate(`${version}-neoforge-${loaderVersion}`);
-            addCandidate(`${version}-${loaderVersion}`);
-            break;
-        default:
-            addCandidate(`${loader}-${loaderVersion}-${version}`);
-            addCandidate(`${version}-${loaderVersion}`);
-            break;
+    const candidateVersions = versionAliases.length ? versionAliases : [String(version || '').trim()];
+
+    for (const candidateVersion of candidateVersions) {
+        switch (loader) {
+            case 'fabric':
+                addCandidate(`fabric-loader-${loaderVersion}-${candidateVersion}`);
+                addCandidate(`fabric-${loaderVersion}-${candidateVersion}`);
+                addCandidate(`${candidateVersion}-${loaderVersion}`);
+                break;
+            case 'quilt':
+                addCandidate(`quilt-loader-${loaderVersion}-${candidateVersion}`);
+                addCandidate(`quilt-${loaderVersion}-${candidateVersion}`);
+                addCandidate(`${candidateVersion}-${loaderVersion}`);
+                break;
+            case 'forge':
+                addCandidate(`forge-${loaderVersion}`);
+                addCandidate(`${candidateVersion}-forge-${loaderVersion}`);
+                addCandidate(`${candidateVersion}-${loaderVersion}`);
+                break;
+            case 'neoforge':
+                addCandidate(`neoforge-${loaderVersion}`);
+                addCandidate(`${candidateVersion}-neoforge-${loaderVersion}`);
+                addCandidate(`${candidateVersion}-${loaderVersion}`);
+                break;
+            default:
+                addCandidate(`${loader}-${loaderVersion}-${candidateVersion}`);
+                addCandidate(`${candidateVersion}-${loaderVersion}`);
+                break;
+        }
     }
 
     return candidates;
@@ -219,6 +248,11 @@ async function resolveAssetIndex(runtimeRoot, version, versionId) {
             return assetsValue;
         }
 
+        const assetIndexId = String(versionJson?.assetIndex?.id || versionJson?.assetIndex || '').trim();
+        if (assetIndexId) {
+            return assetIndexId;
+        }
+
         const inheritedFrom = String(versionJson.inheritsFrom || '').trim();
         if (inheritedFrom && !visited.has(inheritedFrom)) {
             queue.push(inheritedFrom);
@@ -226,6 +260,69 @@ async function resolveAssetIndex(runtimeRoot, version, versionId) {
     }
 
     return '';
+}
+
+async function resolveAssetIndexMetadata(runtimeRoot, version, versionId) {
+    const visited = new Set();
+    const queue = [];
+
+    if (versionId) queue.push(versionId);
+    if (version && version !== versionId) queue.push(version);
+
+    while (queue.length > 0) {
+        const current = String(queue.shift() || '').trim();
+        if (!current || visited.has(current)) continue;
+        visited.add(current);
+
+        const versionJsonPath = path.join(runtimeRoot, 'versions', current, `${current}.json`);
+        const versionJson = await readJsonIfExists(versionJsonPath);
+        if (!versionJson) continue;
+
+        const assetIndex = versionJson?.assetIndex;
+        const assetId = String(assetIndex?.id || versionJson.assets || '').trim();
+        if (assetId) {
+            return {
+                id: assetId,
+                url: String(assetIndex?.url || '').trim()
+            };
+        }
+
+        const inheritedFrom = String(versionJson.inheritsFrom || '').trim();
+        if (inheritedFrom && !visited.has(inheritedFrom)) {
+            queue.push(inheritedFrom);
+        }
+    }
+
+    return null;
+}
+
+async function ensureAssetIndexFile(runtimeRoot, assetRoot, version, versionId, fallbackAssetIndex = '') {
+    const metadata = await resolveAssetIndexMetadata(runtimeRoot, version, versionId);
+    const assetIndexId = String(metadata?.id || fallbackAssetIndex || '').trim();
+    if (!assetIndexId || !assetRoot) return assetIndexId;
+
+    const indexPath = path.join(assetRoot, 'indexes', `${assetIndexId}.json`);
+    if (await fs.pathExists(indexPath)) {
+        return assetIndexId;
+    }
+
+    const indexUrl = String(metadata?.url || '').trim();
+    if (!indexUrl) {
+        console.warn(`[Launcher] Missing asset index file ${assetIndexId}.json and no URL available for download.`);
+        return assetIndexId;
+    }
+
+    try {
+        await fs.ensureDir(path.dirname(indexPath));
+        const axios = require('axios');
+        const response = await axios.get(indexUrl, { responseType: 'arraybuffer', timeout: 30000 });
+        await fs.writeFile(indexPath, response.data);
+        console.log(`[Launcher] Downloaded missing asset index ${assetIndexId}.json`);
+    } catch (error) {
+        console.warn(`[Launcher] Failed to download missing asset index ${assetIndexId}.json: ${error.message}`);
+    }
+
+    return assetIndexId;
 }
 
 async function readExternalLaunchDetails(externalProfile) {
@@ -430,8 +527,15 @@ async function buildExternalLaunchContext(externalProfile) {
         overrides.directory = versionDir;
     }
 
-    if (config.assetIndex) {
-        overrides.assetIndex = config.assetIndex;
+    const ensuredAssetIndex = await ensureAssetIndexFile(
+        details.runtimeRoot,
+        overrides.assetRoot,
+        config.version,
+        config.versionId,
+        config.assetIndex
+    );
+    if (ensuredAssetIndex) {
+        overrides.assetIndex = ensuredAssetIndex;
     }
 
     if (!await fs.pathExists(customJarPath) && await fs.pathExists(vanillaJarPath)) {
@@ -481,8 +585,15 @@ async function buildLocalLaunchContext(instanceName) {
     };
 
     const resolvedAssetIndex = await resolveAssetIndex(instanceDir, config.version, config.versionId);
-    if (resolvedAssetIndex) {
-        overrides.assetIndex = resolvedAssetIndex;
+    const ensuredAssetIndex = await ensureAssetIndexFile(
+        instanceDir,
+        overrides.assetRoot,
+        config.version,
+        config.versionId,
+        resolvedAssetIndex
+    );
+    if (ensuredAssetIndex) {
+        overrides.assetIndex = ensuredAssetIndex;
     }
 
     return {
@@ -1270,8 +1381,8 @@ Add-Type -TypeDefinition $code -Language CSharp
                 }
             });
 
-            launcher.on('close', async (code) => {
-                console.log(`[Launcher] MC Process closed with code: ${code}, logCrashDetected: ${logCrashDetected}`);
+            launcher.on('close', async (code, signal) => {
+                console.log(`[Launcher] MC Process closed with code: ${code}, signal: ${signal || 'none'}, logCrashDetected: ${logCrashDetected}`);
 
                 const startTime = runningInstances.get(instanceName);
                 if (startTime) {
@@ -1291,11 +1402,14 @@ Add-Type -TypeDefinition $code -Language CSharp
                             console.log(`[Launcher] Updated total playtime for ${instanceName}: ${currentConfig.playtime}ms`);
                         }
 
+                        const normalizedExitCode = Number.isInteger(code) ? code : null;
+                        const hasErrorExitCode = normalizedExitCode !== null && normalizedExitCode !== 0;
                         const isShortSession = sessionTime < 15000;
-                        const isCrash = (code !== 0 && code !== null) || logCrashDetected || isShortSession;
+                        const shouldFlagShortSessionCrash = process.platform !== 'linux' && isShortSession;
+                        const isCrash = hasErrorExitCode || logCrashDetected || shouldFlagShortSessionCrash;
 
                         if (isCrash) {
-                            console.log(`[Launcher] Crash/Early Exit detected for ${instanceName} (Exit code: ${code}, LogCrash: ${logCrashDetected}, Duration: ${sessionTime}ms).`);
+                            console.log(`[Launcher] Crash/Early Exit detected for ${instanceName} (Exit code: ${normalizedExitCode ?? 'unknown'}, Signal: ${signal || 'none'}, LogCrash: ${logCrashDetected}, Duration: ${sessionTime}ms, ShortSessionCrash: ${shouldFlagShortSessionCrash}).`);
 
                             const crashLogContent = await buildCrashLogContent(instanceDir, liveLogs.get(instanceName) || []);
                             const compatibilityIssues = extractCompatibilityIssuesFromCrashLog(crashLogContent);

@@ -795,15 +795,42 @@ const isCurseForgeAutoInstallLoaderCompatible = (file, loader) => {
     return aliases.some(alias => gameVersions.includes(alias));
 };
 
-const isCurseForgeAutoInstallVersionCompatible = (file, mcVersion) => {
-    const normalizedVersion = String(mcVersion || '').toLowerCase();
-    if (!normalizedVersion) return true;
+const buildGameVersionAliases = (mcVersion) => {
+    const value = String(mcVersion || '').trim();
+    if (!value) return [];
+
+    const aliases = [];
+    const addAlias = (entry) => {
+        const normalized = String(entry || '').trim();
+        if (!normalized) return;
+        if (!aliases.includes(normalized)) aliases.push(normalized);
+    };
+
+    addAlias(value);
+
+    if (/^\d+\.\d+(?:\.\d+)?$/.test(value)) {
+        if (value.startsWith('1.')) {
+            addAlias(value.slice(2));
+        } else {
+            addAlias(`1.${value}`);
+        }
+    }
+
+    return aliases;
+};
+
+const isCurseForgeAutoInstallVersionCompatible = (file, mcVersionOrVersions) => {
+    const expectedVersions = Array.isArray(mcVersionOrVersions)
+        ? mcVersionOrVersions.map((entry) => String(entry || '').toLowerCase()).filter(Boolean)
+        : buildGameVersionAliases(mcVersionOrVersions).map((entry) => entry.toLowerCase()).filter(Boolean);
+
+    if (expectedVersions.length === 0) return true;
 
     const gameVersions = Array.isArray(file?.gameVersions)
         ? file.gameVersions.map((entry) => String(entry || '').toLowerCase())
         : [];
 
-    return gameVersions.includes(normalizedVersion);
+    return expectedVersions.some((entry) => gameVersions.includes(entry));
 };
 async function downloadFile(url, destPath, signal = null, retries = 1) {
     let lastError;
@@ -819,6 +846,152 @@ async function downloadFile(url, destPath, signal = null, retries = 1) {
         }
     }
     throw lastError;
+}
+
+async function resolveAssetIndexMetadata(instanceDir, versionId, fallbackVersion = '') {
+    const queue = [];
+    const visited = new Set();
+
+    if (versionId) queue.push(String(versionId).trim());
+    if (fallbackVersion && fallbackVersion !== versionId) queue.push(String(fallbackVersion).trim());
+
+    while (queue.length > 0) {
+        const current = String(queue.shift() || '').trim();
+        if (!current || visited.has(current)) continue;
+        visited.add(current);
+
+        const currentJsonPath = path.join(instanceDir, 'versions', current, `${current}.json`);
+        if (!await fs.pathExists(currentJsonPath)) continue;
+
+        let versionJson;
+        try {
+            versionJson = await fs.readJson(currentJsonPath);
+        } catch {
+            continue;
+        }
+
+        if (versionJson?.assetIndex) {
+            const assetIndex = versionJson.assetIndex;
+            const id = String(assetIndex.id || versionJson.assets || '').trim();
+            const url = String(assetIndex.url || '').trim();
+            const sha1 = String(assetIndex.sha1 || '').trim();
+            const size = Number(assetIndex.size || 0);
+
+            if (id) {
+                return { id, url, sha1, size };
+            }
+        }
+
+        const assetsId = String(versionJson?.assets || '').trim();
+        if (assetsId) {
+            return { id: assetsId, url: '', sha1: '', size: 0 };
+        }
+
+        const inherited = String(versionJson?.inheritsFrom || '').trim();
+        if (inherited && !visited.has(inherited)) {
+            queue.push(inherited);
+        }
+    }
+
+    return null;
+}
+
+async function syncMinecraftAssets(instanceDir, assetRoot, versionId, fallbackVersion, onProgress, logCallback, isAborted) {
+    const log = (message) => {
+        if (typeof logCallback === 'function') {
+            logCallback(message);
+        }
+    };
+
+    const progress = (value, status) => {
+        if (typeof onProgress === 'function') {
+            onProgress(value, status);
+        }
+    };
+
+    const assetMeta = await resolveAssetIndexMetadata(instanceDir, versionId, fallbackVersion);
+    if (!assetMeta?.id) {
+        log('Asset sync skipped: no asset index metadata found.');
+        return;
+    }
+
+    const indexesDir = path.join(assetRoot, 'indexes');
+    const objectsDir = path.join(assetRoot, 'objects');
+    await fs.ensureDir(indexesDir);
+    await fs.ensureDir(objectsDir);
+
+    const indexPath = path.join(indexesDir, `${assetMeta.id}.json`);
+    const indexUrl = assetMeta.url || `https://resources.download.minecraft.net/indexes/${assetMeta.id}.json`;
+    let hasValidIndex = await fs.pathExists(indexPath);
+
+    if (hasValidIndex && assetMeta.sha1) {
+        const currentSha1 = await calculateSha1(indexPath).catch(() => '');
+        if (!currentSha1 || currentSha1.toLowerCase() !== assetMeta.sha1.toLowerCase()) {
+            hasValidIndex = false;
+        }
+    }
+
+    if (!hasValidIndex) {
+        log(`Downloading asset index ${assetMeta.id}...`);
+        await downloadFile(indexUrl, indexPath);
+    }
+
+    let indexJson;
+    try {
+        indexJson = await fs.readJson(indexPath);
+    } catch {
+        throw new Error(`Failed to read asset index ${assetMeta.id}`);
+    }
+
+    const objects = Object.values(indexJson?.objects || {});
+    if (objects.length === 0) {
+        log(`Asset index ${assetMeta.id} contains no downloadable objects.`);
+        return;
+    }
+
+    let completed = 0;
+    let downloaded = 0;
+    const total = objects.length;
+
+    for (const entry of objects) {
+        if (typeof isAborted === 'function' && isAborted()) break;
+
+        const hash = String(entry?.hash || '').trim();
+        const size = Number(entry?.size || 0);
+        if (!hash || hash.length < 2) {
+            completed += 1;
+            continue;
+        }
+
+        const prefix = hash.slice(0, 2);
+        const objectPath = path.join(objectsDir, prefix, hash);
+        let exists = await fs.pathExists(objectPath);
+
+        if (exists && size > 0) {
+            try {
+                const stat = await fs.stat(objectPath);
+                if (!stat.isFile() || stat.size !== size) {
+                    exists = false;
+                }
+            } catch {
+                exists = false;
+            }
+        }
+
+        if (!exists) {
+            await fs.ensureDir(path.dirname(objectPath));
+            await downloadFile(`https://resources.download.minecraft.net/${prefix}/${hash}`, objectPath);
+            downloaded += 1;
+        }
+
+        completed += 1;
+        if (completed % 100 === 0 || completed === total) {
+            const percentage = 70 + Math.round((completed / total) * 10);
+            progress(percentage, `Syncing game assets (${completed}/${total})...`);
+        }
+    }
+
+    log(`Asset sync finished: ${downloaded} downloaded, ${total - downloaded} already present.`);
 }
 
 async function getFolderSize(directory) {
@@ -1257,7 +1430,7 @@ module.exports = (ipcMain, win) => {
                                         const currentVersion = res.data;
                                         const projectId = currentVersion.project_id;
                                         const loaders = [loader.toLowerCase()];
-                                        const gameVersions = [version];
+                                        const gameVersions = buildGameVersionAliases(version);
 
                                         const searchUrl = `https://api.modrinth.com/v2/project/${projectId}/version?loaders=["${loaders.join('","')}"]&game_versions=["${gameVersions.join('","')}"]`;
                                         const versionsRes = await axios.get(searchUrl);
@@ -1292,26 +1465,44 @@ module.exports = (ipcMain, win) => {
 
                     let result = { success: true };
                     const loaderType = (loader || 'vanilla').toLowerCase();
+                    let resolvedMcVersion = String(version || '').trim();
                     sendProgress(10, `Downloading Minecraft ${version} base files (Phase 1/3)...`);
                     try {
                         const versionManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest.json';
                         const manifestPath = path.join(dir, 'version_manifest.json');
                         await downloadFile(versionManifestUrl, manifestPath);
                         const manifest = await fs.readJson(manifestPath);
-                        const versionData = manifest.versions.find(v => v.id === version);
+                        const requestedAliases = buildGameVersionAliases(resolvedMcVersion);
+                        const manifestVersions = Array.isArray(manifest?.versions) ? manifest.versions : [];
+                        let versionData = manifestVersions.find((entry) => requestedAliases.includes(String(entry?.id || '').trim()));
 
                         if (!versionData) throw new Error(`Version ${version} not found in manifest`);
 
+                        resolvedMcVersion = String(versionData.id || resolvedMcVersion || version).trim();
+                        if (resolvedMcVersion !== String(version || '').trim()) {
+                            appendLog(`Resolved Minecraft version alias ${version} -> ${resolvedMcVersion}`);
+                        }
+
+                        const resolvedVersionAliases = buildGameVersionAliases(resolvedMcVersion);
+
                         const versionJsonUrl = versionData.url;
-                        const versionDir = path.join(dir, 'versions', version);
+                        const versionDir = path.join(dir, 'versions', resolvedMcVersion);
                         await fs.ensureDir(versionDir);
-                        const versionJsonPath = path.join(versionDir, `${version}.json`);
+                        const versionJsonPath = path.join(versionDir, `${resolvedMcVersion}.json`);
 
                         await downloadFile(versionJsonUrl, versionJsonPath);
-                        const clientJarPath = path.join(versionDir, `${version}.jar`);
+                        const clientJarPath = path.join(versionDir, `${resolvedMcVersion}.jar`);
                         const versionJson = await fs.readJson(versionJsonPath);
                         await downloadFile(versionJson.downloads.client.url, clientJarPath);
                         await fs.remove(manifestPath);
+
+                        const configPath = path.join(dir, 'instance.json');
+                        const updatedConfig = await fs.readJson(configPath);
+                        updatedConfig.version = resolvedMcVersion;
+                        if (!updatedConfig.versionId || updatedConfig.versionId === version) {
+                            updatedConfig.versionId = resolvedMcVersion;
+                        }
+                        await fs.writeJson(configPath, updatedConfig, { spaces: 4 });
                     } catch (e) {
                         const criticalError = "The instance cannot be started because critical software components could not be downloaded.";
                         appendLog(`CRITICAL ERROR: ${criticalError} Details: ${e.message}`);
@@ -1320,10 +1511,10 @@ module.exports = (ipcMain, win) => {
                     if (loaderType !== 'vanilla') {
                         sendProgress(20, `Installing ${loader} loader (Phase 2/3)...`);
                         let targetLoaderVer = existingLoaderVer;
-                        if (loaderType === 'fabric') result = await installFabricLoader(dir, version, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
-                        else if (loaderType === 'quilt') result = await installQuiltLoader(dir, version, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
-                        else if (loaderType === 'forge') result = await installForgeLoader(dir, version, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
-                        else if (loaderType === 'neoforge') result = await installNeoForgeLoader(dir, version, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
+                        if (loaderType === 'fabric') result = await installFabricLoader(dir, resolvedMcVersion, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
+                        else if (loaderType === 'quilt') result = await installQuiltLoader(dir, resolvedMcVersion, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
+                        else if (loaderType === 'forge') result = await installForgeLoader(dir, resolvedMcVersion, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
+                        else if (loaderType === 'neoforge') result = await installNeoForgeLoader(dir, resolvedMcVersion, targetLoaderVer, (p, s) => sendProgress(Math.round(p * 0.1) + 20, s), appendLog);
 
                         if (!result || !result.success) throw new Error(result?.error || `${loader} installation failed`);
                         if (loaderType === 'fabric') {
@@ -1333,7 +1524,7 @@ module.exports = (ipcMain, win) => {
                                 const fapiRes = await axios.get(`https://api.modrinth.com/v2/project/${fabricApiId}/version`, {
                                     params: {
                                         loaders: JSON.stringify(['fabric']),
-                                        game_versions: JSON.stringify([version])
+                                        game_versions: JSON.stringify(resolvedVersionAliases)
                                     }
                                 });
 
@@ -1345,7 +1536,7 @@ module.exports = (ipcMain, win) => {
                                     const dest = path.join(modsDir, file.filename);
 
                                     if (!await fs.pathExists(dest)) {
-                                        appendLog(`Downloading Fabric API compatible with ${version}...`);
+                                        appendLog(`Downloading Fabric API compatible with ${resolvedMcVersion}...`);
                                         await downloadFile(file.url, dest);
                                         appendLog(`Fabric API installed: ${file.filename}`);
                                     }
@@ -1370,7 +1561,7 @@ module.exports = (ipcMain, win) => {
                         await fs.ensureDir(assetRoot); await fs.ensureDir(librariesRoot);
 
                         const currentConfig = await fs.readJson(path.join(dir, 'instance.json'));
-                        const vId = currentConfig.versionId || version;
+                        const vId = currentConfig.versionId || resolvedMcVersion;
                         const vJsonPath = path.join(dir, 'versions', vId, `${vId}.json`);
                         const vJson = await fs.readJson(vJsonPath);
 
@@ -1389,6 +1580,18 @@ module.exports = (ipcMain, win) => {
                             }
                             downloaded++;
                             sendProgress(Math.round(baseProgressStart + (downloaded / libraries.length) * 30), `Syncing libraries...`);
+                        }
+
+                        if (!task.aborted) {
+                            await syncMinecraftAssets(
+                                dir,
+                                assetRoot,
+                                vId,
+                                resolvedMcVersion,
+                                (p, s) => sendProgress(p, s),
+                                appendLog,
+                                () => task.aborted
+                            );
                         }
                     } catch (e) { appendLog(`Library sync warning: ${e.message}`); }
                     if (modsToInstall.length > 0) {
@@ -1462,7 +1665,7 @@ module.exports = (ipcMain, win) => {
                                         {
                                             params: {
                                                 loaders: JSON.stringify([loaderName]),
-                                                game_versions: JSON.stringify([version])
+                                                game_versions: JSON.stringify(resolvedVersionAliases)
                                             }
                                         }
                                     );
@@ -1495,7 +1698,7 @@ module.exports = (ipcMain, win) => {
                                                     {
                                                         params: {
                                                             loaders: JSON.stringify([loaderName]),
-                                                            game_versions: JSON.stringify([version])
+                                                            game_versions: JSON.stringify(resolvedVersionAliases)
                                                         }
                                                     }
                                                 );
@@ -1530,7 +1733,7 @@ module.exports = (ipcMain, win) => {
                                                     {
                                                         params: {
                                                             loaders: JSON.stringify([loaderName]),
-                                                            game_versions: JSON.stringify([version])
+                                                            game_versions: JSON.stringify(resolvedVersionAliases)
                                                         }
                                                     }
                                                 );
@@ -1648,14 +1851,14 @@ module.exports = (ipcMain, win) => {
                                         const allFiles = Array.isArray(filesRes?.data?.data) ? filesRes.data.data : [];
                                         const compatibleFiles = allFiles
                                             .filter(file => isCurseForgeAutoInstallLoaderCompatible(file, loaderName))
-                                            .filter(file => isCurseForgeAutoInstallVersionCompatible(file, version))
+                                            .filter(file => isCurseForgeAutoInstallVersionCompatible(file, resolvedVersionAliases))
                                             .sort((left, right) => new Date(right?.fileDate || 0).getTime() - new Date(left?.fileDate || 0).getTime());
 
                                         const selectedFile = compatibleFiles[0] || allFiles
                                             .sort((left, right) => new Date(right?.fileDate || 0).getTime() - new Date(left?.fileDate || 0).getTime())[0];
 
                                         if (!selectedFile || !selectedFile.downloadUrl) {
-                                            appendLog(`CurseForge auto install mod ${projectId} not available for ${loaderName} ${version} - skipping`);
+                                            appendLog(`CurseForge auto install mod ${projectId} not available for ${loaderName} ${resolvedMcVersion} - skipping`);
                                             skippedCount++;
                                             continue;
                                         }
@@ -1696,7 +1899,7 @@ module.exports = (ipcMain, win) => {
                                         {
                                             params: {
                                                 loaders: JSON.stringify([loaderName]),
-                                                game_versions: JSON.stringify([version])
+                                                game_versions: JSON.stringify(resolvedVersionAliases)
                                             }
                                         }
                                     );
@@ -1721,7 +1924,7 @@ module.exports = (ipcMain, win) => {
                                             installedCount++;
                                         }
                                     } else {
-                                        appendLog(`Auto install mod ${projectId} not available for ${loaderName} ${version} - skipping`);
+                                        appendLog(`Auto install mod ${projectId} not available for ${loaderName} ${resolvedMcVersion} - skipping`);
                                         skippedCount++;
                                     }
                                 } catch (e) {
@@ -3385,6 +3588,7 @@ module.exports = (ipcMain, win) => {
                 const configPath = path.join(instancesDir, instanceName, 'instance.json');
                 const config = await fs.readJson(configPath);
                 const mcVersion = config.version;
+                const mcVersionAliases = buildGameVersionAliases(mcVersion);
                 const loader = config.loader ? config.loader.toLowerCase() : 'vanilla';
 
                 const results = await Promise.all(contentList.map(async (item) => {
@@ -3413,7 +3617,7 @@ module.exports = (ipcMain, win) => {
                             const targetLoader = (item.type === 'resourcepack' || item.type === 'shader') ? 'vanilla' : loader;
                             const compatibleFiles = allFiles
                                 .filter(file => isCurseForgeAutoInstallLoaderCompatible(file, targetLoader))
-                                .filter(file => isCurseForgeAutoInstallVersionCompatible(file, mcVersion))
+                                .filter(file => isCurseForgeAutoInstallVersionCompatible(file, mcVersionAliases))
                                 .sort((left, right) => new Date(right?.fileDate || 0).getTime() - new Date(left?.fileDate || 0).getTime());
 
                             const latest = compatibleFiles[0] || allFiles
@@ -3444,7 +3648,7 @@ module.exports = (ipcMain, win) => {
                             : item.projectId;
                         const params = {
                             loaders: JSON.stringify(loaders),
-                            game_versions: JSON.stringify([mcVersion])
+                            game_versions: JSON.stringify(mcVersionAliases)
                         };
 
                         const response = await axios.get(`https://api.modrinth.com/v2/project/${normalizedProjectId}/version`, {
