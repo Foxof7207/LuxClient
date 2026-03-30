@@ -1366,7 +1366,7 @@ module.exports = (ipcMain, win) => {
                     }
                 }
             });
-            (async () => {
+            return (async () => {
                 const task = activeTasks.get(finalName);
                 if (!task) return;
                 let sendCompletion = async () => { };
@@ -2015,7 +2015,7 @@ module.exports = (ipcMain, win) => {
                 });
 
                 await fs.writeJson(path.join(targetDir, 'instance.json'), instanceConfig, { spaces: 4 });
-                (async () => {
+                await (async () => {
                     try {
                         const sendProgress = (progress, status) => {
                             if (win && win.webContents) {
@@ -2092,6 +2092,7 @@ module.exports = (ipcMain, win) => {
                             if (win && win.webContents) {
                                 win.webContents.send('instance:status', { instanceName, status: 'error', error: err.message });
                             }
+                            throw err;
                         }
                     } finally {
                         if (activeTasks.get(instanceName)?.abort === controller.abort) {
@@ -2168,7 +2169,7 @@ module.exports = (ipcMain, win) => {
 
                 await fs.writeJson(path.join(targetDir, 'instance.json'), instanceConfig, { spaces: 4 });
 
-                (async () => {
+                await (async () => {
                     try {
                         const sendProgress = (progress, status) => {
                             if (win && win.webContents) {
@@ -2254,6 +2255,7 @@ module.exports = (ipcMain, win) => {
                             if (win && win.webContents) {
                                 win.webContents.send('instance:status', { instanceName, status: 'error', error: err.message });
                             }
+                            throw err;
                         }
                     } finally {
                         if (activeTasks.get(instanceName)?.abort === controller.abort) {
@@ -3773,7 +3775,7 @@ module.exports = (ipcMain, win) => {
                 const safeNewConfig = sanitizeInstanceConfig(newConfig);
                 const finalConfig = { ...currentConfig, ...safeNewConfig, status: 'installing' };
                 await fs.writeJson(configPath, finalConfig, { spaces: 4 });
-                startBackgroundInstall(instanceName, finalConfig, false, true);
+                await startBackgroundInstall(instanceName, finalConfig, false, true);
 
                 return { success: true };
             } catch (e) {
