@@ -19,6 +19,7 @@ const {
     getAllInstanceDirsSync,
     migrateLegacyInstancesToPrimarySync
 } = require('../utils/instances-path');
+const { downloadAndCacheIcon } = require('../utils/icon-cache');
 let appData;
 let instancesDir;
 let globalBackupsDir;
@@ -66,6 +67,7 @@ function buildInstanceFolderMetaKey(instance) {
 
     return `local:${name}`;
 }
+
 
 async function resolveInstanceBaseDir(instanceName) {
     const normalizedName = String(instanceName || '').trim().toLowerCase();
@@ -1995,13 +1997,10 @@ module.exports = (ipcMain, win) => {
                 };
 
                 if (iconUrl) {
-                    try {
-                        const iconPath = path.join(targetDir, 'icon.png');
-                        await downloadFile(iconUrl, iconPath);
-                        instanceConfig.icon = `app-media:///${iconPath.replace(/\\/g, '/')}`;
-                        console.log(`[Import:MrPack] Icon downloaded and set: ${iconPath}`);
-                    } catch (err) {
-                        console.error('[Import:MrPack] Failed to download icon:', err);
+                    const cachedIcon = await downloadAndCacheIcon(iconUrl);
+                    if (cachedIcon) {
+                        instanceConfig.icon = cachedIcon;
+                        console.log(`[Import:MrPack] Icon cached and set: ${cachedIcon}`);
                     }
                 }
 
@@ -3486,11 +3485,11 @@ module.exports = (ipcMain, win) => {
                                         const projectData = projectRes.data;
 
                                         title = projectData.title;
-                                        icon = projectData.icon_url;
+                                        icon = await downloadAndCacheIcon(projectData.icon_url);
                                         version = versionData.version_number;
                                         const projectId = projectData.id;
                                         const versionId = versionData.id;
-                                        const entry = { title, icon, version, hash, projectId, versionId, source: 'modrinth' };
+                                        const entry = { title, icon: icon || projectData.icon_url, version, hash, projectId, versionId, source: 'modrinth' };
                                         modCache[cacheKey] = entry;
                                         cacheUpdates[cacheKey] = entry;
                                     }
