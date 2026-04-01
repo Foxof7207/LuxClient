@@ -4,6 +4,7 @@ const { app } = require('electron');
 const fs = require('fs-extra');
 const Store = require('electron-store');
 const store = new Store();
+const { getUserProfile } = require('../utils/secureProfileStore');
 const backupManager = require('../backupManager');
 const { getProcessStats } = require('../utils/process-utils');
 const { resolvePrimaryInstancesDir, resolveInstanceDirByName } = require('../utils/instances-path');
@@ -1090,7 +1091,7 @@ Add-Type -TypeDefinition $code -Language CSharp
                 backupManager.startScheduler(instanceName, backupConfig.backupSettings.interval);
             }
 
-            const userProfile = store.get('user_profile');
+            const userProfile = getUserProfile(store);
             if (!userProfile || !userProfile.access_token) {
                 return { success: false, error: 'Not logged in. Please login first.' };
             }

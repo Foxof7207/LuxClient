@@ -50,6 +50,8 @@
             margin-bottom: 5px;
             animation: pulse 2.5s infinite ease-in-out;
             -webkit-app-region: no-drag;
+            -webkit-user-drag: none;
+            user-select: none;
             filter: drop-shadow(0 0 15px rgba(88, 101, 242, 0.3));
         }
 
@@ -117,7 +119,7 @@
 
 <body>
     <div class="container">
-        <img src="../resources/icon.png" alt="Lux Logo" class="logo">
+        <img src="../resources/icon.png" alt="Lux Logo" class="logo" draggable="false">
         <div class="status-container">
             <div class="status" id="status">Searching for updates</div>
             <div class="progress-container" id="progress-container">

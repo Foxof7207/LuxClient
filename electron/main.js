@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, Menu, Tray, nativeImage, screen } = require('electron');
 const fs = require('fs-extra');
 const path = require('path');
 const pkg = require('../package.json');
@@ -322,8 +322,20 @@ function launchMain() {
     createWindow();
 }
 
+function getSplashDisplayWorkArea() {
+    if (!splashWindow || splashWindow.isDestroyed()) return null;
+
+    const splashBounds = splashWindow.getBounds();
+    const splashCenter = {
+        x: Math.round(splashBounds.x + (splashBounds.width / 2)),
+        y: Math.round(splashBounds.y + (splashBounds.height / 2))
+    };
+    const display = screen.getDisplayNearestPoint(splashCenter);
+    return display?.workArea || null;
+}
+
 function createWindow() {
-    mainWindow = new BrowserWindow({
+    const windowOptions = {
         width: 1600,
         height: 900,
         minWidth: 900,
@@ -340,10 +352,25 @@ function createWindow() {
             sandbox: true,
             v8CacheOptions: 'bypassHeatCheck'
         },
-    });
+    };
+
+    const splashWorkArea = getSplashDisplayWorkArea();
+    if (splashWorkArea) {
+        const windowWidth = windowOptions.width;
+        const windowHeight = windowOptions.height;
+        const centeredX = Math.round(splashWorkArea.x + ((splashWorkArea.width - windowWidth) / 2));
+        const centeredY = Math.round(splashWorkArea.y + ((splashWorkArea.height - windowHeight) / 2));
+        windowOptions.x = centeredX;
+        windowOptions.y = centeredY;
+    }
+
+    mainWindow = new BrowserWindow(windowOptions);
 
     mainWindow.once('ready-to-show', () => {
         setTimeout(() => {
+            if (splashWorkArea) {
+                mainWindow.setPosition(windowOptions.x, windowOptions.y);
+            }
             if (splashWindow) {
                 splashWindow.close();
                 splashWindow = null;
