@@ -429,7 +429,25 @@
             "slovenian": "Słoweński (SI)",
             "swedish": "Szwedzki (SE)",
             "quick_switch_button": "Przycisk szybkiego przełączania",
-            "quick_switch_button_desc": "Przycisk szybkiego przełączania"
+            "quick_switch_button_desc": "Przycisk szybkiego przełączania",
+            "animations": {
+                "title": "Animacje stron",
+                "desc": "Animuje przełączanie stron i kart zamiast natychmiastowej zmiany widoku.",
+                "style_label": "Styl animacji",
+                "style_desc": "Wybierz styl przejścia używany w całym launcherze.",
+                "presets": {
+                    "cinematic": "Kinowy",
+                    "cinematic_desc": "Miękkie rozmycie, subtelna głębia i dopracowana zmiana strony.",
+                    "glide": "Poślizg",
+                    "glide_desc": "Szybki ruch poziomy dla wyraźniejszego przełączania kart.",
+                    "fade": "Przenikanie",
+                    "fade_desc": "Minimalne przenikanie z prawie zerowym ruchem.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Strony pojawiają się z bardziej skupionym efektem zbliżenia.",
+                    "lift": "Unoszenie",
+                    "lift_desc": "Treść wchodzi od dołu i wychodzi ku górze z większym ruchem."
+                }
+            }
         },
         "java": {
             "title": "Środowisko Java",

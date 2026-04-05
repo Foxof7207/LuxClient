@@ -429,7 +429,25 @@
             "slovenian": "Slovenščina (SI)",
             "swedish": "Švedščina (SE)",
             "quick_switch_button": "Gumb za hitro spreminjanje",
-            "quick_switch_button_desc": "Gumb za hitro spreminjanje"
+            "quick_switch_button_desc": "Gumb za hitro spreminjanje",
+            "animations": {
+                "title": "Animacije strani",
+                "desc": "Animira preklapljanje strani in zavihkov namesto takojšnje menjave pogleda.",
+                "style_label": "Slog animacije",
+                "style_desc": "Izberi slog prehoda, ki naj se uporablja v celotnem launcherju.",
+                "presets": {
+                    "cinematic": "Kinematični",
+                    "cinematic_desc": "Nežen zamegljen učinek, subtilna globina in uglajen prehod strani.",
+                    "glide": "Drsenje",
+                    "glide_desc": "Hiter vodoravni premik za izrazitejšo menjavo zavihkov.",
+                    "fade": "Pojemanje",
+                    "fade_desc": "Minimalen prehod s skoraj nič gibanja.",
+                    "zoom": "Povečava",
+                    "zoom_desc": "Strani se prikažejo z bolj osredotočenim učinkom povečave.",
+                    "lift": "Dvigni",
+                    "lift_desc": "Vsebina pride od spodaj in izgine navzgor z več gibanja."
+                }
+            }
         },
         "java": {
             "title": "Okolje Java (Runtime)",

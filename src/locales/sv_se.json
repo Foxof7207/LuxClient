@@ -429,7 +429,25 @@
             "slovenian": "Slovenska (SI)",
             "swedish": "Svenska (SE)",
             "quick_switch_button": "Knapp för snabb växling",
-            "quick_switch_button_desc": "Knapp för snabb växling"
+            "quick_switch_button_desc": "Knapp för snabb växling",
+            "animations": {
+                "title": "Sidanimationer",
+                "desc": "Animerar byte mellan sidor och flikar i stället för att byta vy direkt.",
+                "style_label": "Animationsstil",
+                "style_desc": "Välj vilken övergångsstil som ska användas i hela launchern.",
+                "presets": {
+                    "cinematic": "Cinematic",
+                    "cinematic_desc": "Mjuk oskärpa, subtilt djup och ett polerat sidbyte.",
+                    "glide": "Glide",
+                    "glide_desc": "Snabb horisontell rörelse för ett tydligare flikbyte.",
+                    "fade": "Fade",
+                    "fade_desc": "Minimal övertoning med nästan ingen rörelse.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Sidor tonas in med en mer fokuserad zoomeffekt.",
+                    "lift": "Lift",
+                    "lift_desc": "Innehåll lyfts in och lämnar uppåt med mer rörelse."
+                }
+            }
         },
         "java": {
             "title": "Java",

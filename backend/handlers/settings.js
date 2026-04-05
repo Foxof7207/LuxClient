@@ -22,6 +22,8 @@ module.exports = (ipcMain) => {
         focusMode: false,
         minimalMode: true,
         minimizeToTray: false,
+        pageAnimationsEnabled: true,
+        pageAnimationPreset: 'cinematic',
         theme: {
             primaryColor: '#22e07a',
             backgroundColor: '#0d1117',

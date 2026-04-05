@@ -435,7 +435,25 @@
             "slovenian": "Esloveno (SI)",
             "swedish": "Sueco (SE)",
             "quick_switch_button": "Botón de cambio rápido",
-            "quick_switch_button_desc": "Botón de cambio rápido"
+            "quick_switch_button_desc": "Botón de cambio rápido",
+            "animations": {
+                "title": "Animaciones de página",
+                "desc": "Anima los cambios de página y pestaña en lugar de cambiar la vista al instante.",
+                "style_label": "Estilo de animación",
+                "style_desc": "Elige qué estilo de transición debe usarse en todo el launcher.",
+                "presets": {
+                    "cinematic": "Cinemática",
+                    "cinematic_desc": "Desenfoque suave, profundidad sutil y un cambio de página pulido.",
+                    "glide": "Deslizamiento",
+                    "glide_desc": "Movimiento horizontal rápido para un cambio de pestaña más definido.",
+                    "fade": "Desvanecer",
+                    "fade_desc": "Transición mínima con casi nada de movimiento.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Las páginas aparecen con un efecto de zoom más enfocado.",
+                    "lift": "Elevación",
+                    "lift_desc": "El contenido entra desde abajo y sale hacia arriba con más movimiento."
+                }
+            }
         },
         "java": {
             "title": "Entorno de Java",

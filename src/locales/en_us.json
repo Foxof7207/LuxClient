@@ -432,6 +432,24 @@
             "startup_page_desc": "Choose which page shows when you open the app",
             "language": "Language",
             "language_desc": "Pick your language.",
+            "animations": {
+                "title": "Page Animations",
+                "desc": "Animate page and tab switches instead of changing views instantly.",
+                "style_label": "Animation Style",
+                "style_desc": "Choose which transition style should be used across the launcher.",
+                "presets": {
+                    "cinematic": "Cinematic",
+                    "cinematic_desc": "Soft blur, subtle depth and a polished page swap.",
+                    "glide": "Glide",
+                    "glide_desc": "Fast horizontal movement for a sharper tab switch.",
+                    "fade": "Fade",
+                    "fade_desc": "Minimal crossfade with almost no movement.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Pages fade in with a focused zoom effect.",
+                    "lift": "Lift",
+                    "lift_desc": "Content rises in and leaves upward with more motion."
+                }
+            },
             "select_language": "Pick Language",
             "english": "English (US)",
             "english_uk": "English (UK)",

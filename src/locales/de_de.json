@@ -427,6 +427,24 @@
             "startup_page_desc": "Wähle, welche Seite beim Start der App angezeigt werden soll",
             "language": "Sprache",
             "language_desc": "Wähle deine bevorzugte Sprache aus.",
+            "animations": {
+                "title": "Seitenanimationen",
+                "desc": "Animiert Seiten- und Tab-Wechsel, statt Ansichten sofort umzuschalten.",
+                "style_label": "Animationsstil",
+                "style_desc": "Wähle, welcher Übergangsstil im Launcher verwendet werden soll.",
+                "presets": {
+                    "cinematic": "Cinematic",
+                    "cinematic_desc": "Weicher Blur, dezente Tiefe und ein hochwertiger Seitenwechsel.",
+                    "glide": "Glide",
+                    "glide_desc": "Schnelle horizontale Bewegung für einen klaren Tab-Wechsel.",
+                    "fade": "Fade",
+                    "fade_desc": "Minimales Überblenden mit kaum Bewegung.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Seiten blenden mit einem fokussierten Zoom ein.",
+                    "lift": "Lift",
+                    "lift_desc": "Inhalte steigen sichtbar ein und nach oben aus."
+                }
+            },
             "select_language": "Sprache auswählen",
             "english": "Englisch (US)",
             "english_uk": "Englisch (UK)",

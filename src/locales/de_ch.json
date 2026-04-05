@@ -429,7 +429,25 @@
             "slovenian": "Slovenisch (SI)",
             "swedish": "Schwedisch (SE)",
             "quick_switch_button": "Schnelle Umschalttaste",
-            "quick_switch_button_desc": "Schnelle Umschalttaste"
+            "quick_switch_button_desc": "Schnelle Umschalttaste",
+            "animations": {
+                "title": "Syteanimatione",
+                "desc": "Animiert Syte- und Tab-Wächsel, statt d Ansicht sofort umzschalte.",
+                "style_label": "Animationsstil",
+                "style_desc": "Wähl, wellä Übergangsstil im Launcher söll bruucht wärde.",
+                "presets": {
+                    "cinematic": "Cinematic",
+                    "cinematic_desc": "Wiiche Blur, dezänti Tiefe und e hochwertigi Sytewächsel-Animation.",
+                    "glide": "Glide",
+                    "glide_desc": "Schnelli horizontali Bewegig für en chlarä Tab-Wächsel.",
+                    "fade": "Fade",
+                    "fade_desc": "Minimales Überblände mit fascht kei Bewegig.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Syte blendet mit eme fokussierte Zoom ii.",
+                    "lift": "Lift",
+                    "lift_desc": "Inhalt chunnt vo unde ine und geit mit meh Bewegig nach obe use."
+                }
+            }
         },
         "java": {
             "title": "Java-Laufziitumgebig",

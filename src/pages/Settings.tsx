@@ -50,6 +50,33 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
     const { t, i18n } = useTranslation();
     const { addNotification } = useNotification();
     const isClientSettings = mode === 'client';
+    const animationPresetOptions = [
+        {
+            id: 'cinematic',
+            label: t('settings.general.animations.presets.cinematic', 'Cinematic'),
+            description: t('settings.general.animations.presets.cinematic_desc', 'Soft blur, subtle depth and a premium page swap.')
+        },
+        {
+            id: 'glide',
+            label: t('settings.general.animations.presets.glide', 'Glide'),
+            description: t('settings.general.animations.presets.glide_desc', 'A horizontal slide that feels quick and clean.')
+        },
+        {
+            id: 'fade',
+            label: t('settings.general.animations.presets.fade', 'Fade'),
+            description: t('settings.general.animations.presets.fade_desc', 'Minimal crossfade with almost no motion.')
+        },
+        {
+            id: 'zoom',
+            label: t('settings.general.animations.presets.zoom', 'Zoom'),
+            description: t('settings.general.animations.presets.zoom_desc', 'Pages ease in with a tighter zoom effect.')
+        },
+        {
+            id: 'lift',
+            label: t('settings.general.animations.presets.lift', 'Lift'),
+            description: t('settings.general.animations.presets.lift_desc', 'Content rises in and exits upward with more motion.')
+        }
+    ];
     const [settings, setSettings] = useState({
         javaPath: '',
         javaArgs: '-Xmx4G',
@@ -76,6 +103,8 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
         enableSmartLogAnalytics: true,
         language: 'en_us',
         startPage: 'dashboard',
+        pageAnimationsEnabled: true,
+        pageAnimationPreset: 'cinematic',
         showModrinthInstancesInLibrary: true,
         showCurseforgeInstancesInLibrary: true,
         javaProfile: 'default',
@@ -621,6 +650,45 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                             </div>
 
                             <Separator />
+
+                            <div className="space-y-4">
+                                <ToggleBox
+                                    checked={settings.pageAnimationsEnabled !== false}
+                                    onChange={(val) => handleChange('pageAnimationsEnabled', val)}
+                                    label={t('settings.general.animations.title', 'Page Animations')}
+                                    description={t('settings.general.animations.desc', 'Animate page and tab switches instead of switching instantly.')}
+                                />
+
+                                {settings.pageAnimationsEnabled !== false && (
+                                    <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                        <div className="mb-3">
+                                            <Label className="text-foreground">{t('settings.general.animations.style_label', 'Animation Style')}</Label>
+                                            <p className="mt-1 text-xs text-muted-foreground">{t('settings.general.animations.style_desc', 'Choose how pages should move when you switch tabs or sections.')}</p>
+                                        </div>
+
+                                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                            {animationPresetOptions.map((option) => {
+                                                const isActive = (settings.pageAnimationPreset || 'cinematic') === option.id;
+
+                                                return (
+                                                    <button
+                                                        key={option.id}
+                                                        type="button"
+                                                        onClick={() => handleChange('pageAnimationPreset', option.id)}
+                                                        className={`rounded-xl border p-4 text-left transition-all ${isActive ? 'border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(var(--primary-color-rgb),0.15)]' : 'border-border bg-background/50 hover:border-primary/40 hover:bg-accent/30'}`}
+                                                    >
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <span className="text-sm font-semibold text-foreground">{option.label}</span>
+                                                            {isActive && <Badge variant="success">{t('common.active', 'Active')}</Badge>}
+                                                        </div>
+                                                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{option.description}</p>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
 
                             <div className="flex items-center justify-between gap-4 flex-wrap">
                                 <div className="flex-1 min-w-[200px]">

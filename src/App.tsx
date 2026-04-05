@@ -39,8 +39,121 @@ import GuideOverlay from './components/GuideOverlay';
 import { syncCustomFonts } from './services/fontManager';
 import { updateShadcnVars } from './lib/utils';
 import { getGuideDefaultView, getGuideSteps, GuideMode, isGuideMode } from './lib/guideSteps';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import i18n, { languageMap } from './i18n';
+
+const DEFAULT_PAGE_ANIMATION_PRESET = 'cinematic';
+const PAGE_TRANSITION_PRESETS = {
+    cinematic: {
+        duration: 0.34,
+        variants: {
+            initial: {
+                opacity: 0,
+                y: 18,
+                scale: 0.985,
+                filter: 'blur(10px)'
+            },
+            animate: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                filter: 'blur(0px)'
+            },
+            exit: {
+                opacity: 0,
+                y: -14,
+                scale: 0.992,
+                filter: 'blur(6px)'
+            }
+        }
+    },
+    glide: {
+        duration: 0.3,
+        variants: {
+            initial: {
+                opacity: 0,
+                x: 32,
+                scale: 0.992,
+                filter: 'blur(8px)'
+            },
+            animate: {
+                opacity: 1,
+                x: 0,
+                scale: 1,
+                filter: 'blur(0px)'
+            },
+            exit: {
+                opacity: 0,
+                x: -26,
+                scale: 0.996,
+                filter: 'blur(4px)'
+            }
+        }
+    },
+    fade: {
+        duration: 0.22,
+        variants: {
+            initial: {
+                opacity: 0
+            },
+            animate: {
+                opacity: 1
+            },
+            exit: {
+                opacity: 0
+            }
+        }
+    },
+    zoom: {
+        duration: 0.28,
+        variants: {
+            initial: {
+                opacity: 0,
+                scale: 0.94,
+                filter: 'blur(12px)'
+            },
+            animate: {
+                opacity: 1,
+                scale: 1,
+                filter: 'blur(0px)'
+            },
+            exit: {
+                opacity: 0,
+                scale: 1.03,
+                filter: 'blur(6px)'
+            }
+        }
+    },
+    lift: {
+        duration: 0.29,
+        variants: {
+            initial: {
+                opacity: 0,
+                y: 28,
+                scale: 0.978
+            },
+            animate: {
+                opacity: 1,
+                y: 0,
+                scale: 1
+            },
+            exit: {
+                opacity: 0,
+                y: -20,
+                scale: 0.988
+            }
+        }
+    }
+};
+
+const getPageTransitionPreset = (preset) => {
+    if (typeof preset === 'string' && PAGE_TRANSITION_PRESETS[preset]) {
+        return PAGE_TRANSITION_PRESETS[preset];
+    }
+
+    return PAGE_TRANSITION_PRESETS[DEFAULT_PAGE_ANIMATION_PRESET];
+};
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
     constructor(props: { children: React.ReactNode }) {
@@ -193,6 +306,7 @@ const resolveModeView = (mode, requestedView) => {
 
 function App() {
     const { t, i18n } = useTranslation();
+    const prefersReducedMotion = useReducedMotion();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isPending, startTransition] = React.useTransition();
     const [currentMode, setCurrentMode] = useState('launcher');
@@ -908,6 +1022,12 @@ function App() {
         !isGuidePromptBlockedBySetup &&
         !isGuideRunning &&
         guidePromptMode === null;
+    const pageAnimationsEnabled = appSettings.pageAnimationsEnabled !== false;
+    const pageAnimationPreset = typeof appSettings.pageAnimationPreset === 'string'
+        ? appSettings.pageAnimationPreset
+        : DEFAULT_PAGE_ANIMATION_PRESET;
+    const activePageTransitionPreset = getPageTransitionPreset(pageAnimationPreset);
+    const shouldAnimatePages = pageAnimationsEnabled && !prefersReducedMotion;
 
     useEffect(() => {
         if (!isGuideRunning) {
@@ -960,6 +1080,126 @@ function App() {
         guidePromptMode,
         appSettings
     ]);
+
+    const renderCurrentPage = () => {
+        if (currentMode === 'launcher') {
+            if (currentView === 'dashboard') {
+                return <Home onInstanceClick={handleInstanceClick} runningInstances={runningInstances} isGuest={isGuest} userProfile={userProfile} activeDownloads={activeDownloads} onNavigateSearch={(category) => { setSearchCategory(category); setCurrentView('search'); }} />;
+            }
+
+            if (currentView === 'library') {
+                return <Dashboard onInstanceClick={handleInstanceClick} runningInstances={runningInstances} activeDownloads={activeDownloads} triggerCreate={triggerCreateInstance} onCreateHandled={() => setTriggerCreateInstance(false)} isGuest={isGuest} />;
+            }
+
+            if (currentView === 'search') {
+                return <Search initialCategory={searchCategory} onCategoryConsumed={() => setSearchCategory(null)} />;
+            }
+
+            if (currentView === 'skins' && !isGuest) {
+                return <Skins onLogout={handleLogout} onProfileUpdate={setUserProfile} />;
+            }
+
+            if (currentView === 'styling') {
+                return <Styling />;
+            }
+
+            if (currentView === 'settings') {
+                return <Settings mode="launcher" onRestartGuide={() => handleRestartGuide('launcher')} />;
+            }
+
+            if (currentView === 'instance-details' && selectedInstance) {
+                return <InstanceDetails instance={selectedInstance} onBack={handleBackToDashboard} runningInstances={runningInstances} onInstanceUpdate={handleInstanceUpdate} isGuest={isGuest} />;
+            }
+
+            if (currentView === 'extensions') {
+                return <Extensions />;
+            }
+        }
+
+        if (currentMode === 'server') {
+            if (currentView === 'server-dashboard') {
+                return <ServerDashboard onServerClick={handleServerClick} runningInstances={runningInstances} isGuest={isGuest} />;
+            }
+
+            if (currentView === 'server-details' && selectedServer) {
+                return (
+                    <ServerDetails
+                        server={selectedServer}
+                        onBack={handleBackToDashboard}
+                        runningInstances={runningInstances}
+                        onServerUpdate={handleServerUpdate}
+                        isGuest={isGuest}
+                    />
+                );
+            }
+
+            if (currentView === 'search') {
+                return <ServerSearch />;
+            }
+
+            if (currentView === 'styling') {
+                return <Styling />;
+            }
+
+            if (currentView === 'server-library') {
+                return <ServerLibrary />;
+            }
+
+            if (currentView === 'server-settings') {
+                return <ServerSettings onRestartGuide={() => handleRestartGuide('server')} />;
+            }
+        }
+
+        if (currentMode === 'client' && isFeatureEnabled('openClientPage')) {
+            if (currentView === 'open-client') {
+                return <Client />;
+            }
+
+            if (currentView === 'skins' && !isGuest) {
+                return <Skins onLogout={handleLogout} onProfileUpdate={setUserProfile} />;
+            }
+
+            if (currentView === 'extensions') {
+                return <Extensions />;
+            }
+
+            if (currentView === 'styling') {
+                return <Styling />;
+            }
+
+            if (currentView === 'mods') {
+                return <ClientMods />;
+            }
+
+            if (currentView === 'settings') {
+                return <Settings mode="client" onRestartGuide={() => handleRestartGuide('client')} />;
+            }
+        }
+
+        if (currentMode === 'tools') {
+            if (currentView === 'tools-dashboard') {
+                return <ToolsDashboard />;
+            }
+
+            if (currentView === 'settings') {
+                return <Settings mode="tools" onRestartGuide={() => handleRestartGuide('tools')} />;
+            }
+        }
+
+        if (currentView === 'news') {
+            return <News />;
+        }
+
+        return null;
+    };
+
+    const currentPage = renderCurrentPage();
+    const currentPageKey = [
+        currentMode,
+        currentView,
+        selectedInstance?.name ?? '',
+        selectedServer?.name ?? ''
+    ].join(':');
 
     return (
         <ExtensionProvider>
@@ -1047,67 +1287,27 @@ function App() {
                                     <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                                 </div>
                             }>
-                                {currentMode === 'launcher' && (
-                                    <>
-                                        {currentView === 'dashboard' && <Home onInstanceClick={handleInstanceClick} runningInstances={runningInstances} isGuest={isGuest} userProfile={userProfile} activeDownloads={activeDownloads} onNavigateSearch={(category) => { setSearchCategory(category); setCurrentView('search'); }} />}
-                                        {currentView === 'library' && <Dashboard onInstanceClick={handleInstanceClick} runningInstances={runningInstances} activeDownloads={activeDownloads} triggerCreate={triggerCreateInstance} onCreateHandled={() => setTriggerCreateInstance(false)} isGuest={isGuest} />}
-                                        {currentView === 'search' && <Search initialCategory={searchCategory} onCategoryConsumed={() => setSearchCategory(null)} />}
-                                        {currentView === 'skins' && !isGuest && <Skins onLogout={handleLogout} onProfileUpdate={setUserProfile} />}
-                                        {currentView === 'styling' && <Styling />}
-                                        {currentView === 'settings' && (
-                                            <Settings mode="launcher" onRestartGuide={() => handleRestartGuide('launcher')} />
+                                <div className="page-transition-root flex-1 overflow-hidden">
+                                    <AnimatePresence mode="wait" initial={false}>
+                                        {currentPage && (
+                                            <motion.div
+                                                key={currentPageKey}
+                                                className="page-transition-stage"
+                                                data-page-animation={shouldAnimatePages ? pageAnimationPreset : 'none'}
+                                                variants={activePageTransitionPreset.variants}
+                                                initial={shouldAnimatePages ? 'initial' : false}
+                                                animate="animate"
+                                                exit={shouldAnimatePages ? 'exit' : undefined}
+                                                transition={shouldAnimatePages ? {
+                                                    duration: activePageTransitionPreset.duration,
+                                                    ease: [0.22, 1, 0.36, 1]
+                                                } : { duration: 0 }}
+                                            >
+                                                {currentPage}
+                                            </motion.div>
                                         )}
-                                        {currentView === 'instance-details' && selectedInstance && (
-                                            <InstanceDetails instance={selectedInstance} onBack={handleBackToDashboard} runningInstances={runningInstances} onInstanceUpdate={handleInstanceUpdate} isGuest={isGuest} />
-                                        )}
-                                        {currentView === 'extensions' && <Extensions />}
-                                    </>
-                                )}
-
-                                {currentMode === 'server' && (
-                                    <>
-                                        {currentView === 'server-dashboard' && <ServerDashboard onServerClick={handleServerClick} runningInstances={runningInstances} isGuest={isGuest} />}
-                                        {currentView === 'server-details' && selectedServer && (
-                                            <ServerDetails
-                                                server={selectedServer}
-                                                onBack={handleBackToDashboard}
-                                                runningInstances={runningInstances}
-                                                onServerUpdate={handleServerUpdate}
-                                                isGuest={isGuest}
-                                            />
-                                        )}
-                                        {currentView === 'search' && <ServerSearch />}
-                                        {currentView === 'styling' && <Styling />}
-                                        {currentView === 'server-library' && <ServerLibrary />}
-                                        {currentView === 'server-settings' && (
-                                            <ServerSettings onRestartGuide={() => handleRestartGuide('server')} />
-                                        )}
-                                    </>
-                                )}
-
-                                {currentMode === 'client' && isFeatureEnabled('openClientPage') && (
-                                    <>
-                                        {currentView === 'open-client' && <Client />}
-                                        {currentView === 'skins' && !isGuest && <Skins onLogout={handleLogout} onProfileUpdate={setUserProfile} />}
-                                        {currentView === 'extensions' && <Extensions />}
-                                        {currentView === 'styling' && <Styling />}
-                                        {currentView === 'mods' && <ClientMods />}
-                                        {currentView === 'settings' && (
-                                            <Settings mode="client" onRestartGuide={() => handleRestartGuide('client')} />
-                                        )}
-                                    </>
-                                )}
-
-                                {currentMode === 'tools' && (
-                                    <>
-                                        {currentView === 'tools-dashboard' && <ToolsDashboard />}
-                                        {currentView === 'settings' && (
-                                            <Settings mode="tools" onRestartGuide={() => handleRestartGuide('tools')} />
-                                        )}
-                                    </>
-                                )}
-
-                                {currentView === 'news' && <News />}
+                                    </AnimatePresence>
+                                </div>
                             </React.Suspense>
                         </main>
                     </div>

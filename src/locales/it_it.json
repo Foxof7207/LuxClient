@@ -429,7 +429,25 @@
             "slovenian": "Sloveno (SI)",
             "swedish": "Svedese (SE)",
             "quick_switch_button": "Pulsante di cambio rapido",
-            "quick_switch_button_desc": "Pulsante di cambio rapido"
+            "quick_switch_button_desc": "Pulsante di cambio rapido",
+            "animations": {
+                "title": "Animazioni delle pagine",
+                "desc": "Anima i cambi di pagina e scheda invece di cambiare vista all'istante.",
+                "style_label": "Stile animazione",
+                "style_desc": "Scegli quale stile di transizione usare nel launcher.",
+                "presets": {
+                    "cinematic": "Cinematica",
+                    "cinematic_desc": "Sfocatura morbida, profondità sottile e cambio pagina rifinito.",
+                    "glide": "Scorrimento",
+                    "glide_desc": "Movimento orizzontale rapido per un cambio scheda più deciso.",
+                    "fade": "Dissolvenza",
+                    "fade_desc": "Transizione minima con quasi nessun movimento.",
+                    "zoom": "Zoom",
+                    "zoom_desc": "Le pagine entrano con un effetto zoom più focalizzato.",
+                    "lift": "Sollevamento",
+                    "lift_desc": "Il contenuto entra dal basso ed esce verso l'alto con più movimento."
+                }
+            }
         },
         "java": {
             "title": "Runtime Java",
