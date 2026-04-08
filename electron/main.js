@@ -265,9 +265,20 @@ async function resolveExpectedReleaseSha256(axios, release, assetName) {
 }
 
 function createSplashWindow() {
+    const cursor = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursor);
+    const workArea = display.workArea;
+
+    const splashWidth = 300;
+    const splashHeight = 350;
+    const splashX = Math.round(workArea.x + (workArea.width - splashWidth) / 2);
+    const splashY = Math.round(workArea.y + (workArea.height - splashHeight) / 2);
+
     splashWindow = new BrowserWindow({
-        width: 300,
-        height: 350,
+        width: splashWidth,
+        height: splashHeight,
+        x: splashX,
+        y: splashY,
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -295,7 +306,6 @@ function createSplashWindow() {
     } catch (err) {
         console.error('[Main] Failed to load splash screen:', err);
     }
-    splashWindow.center();
 }
 
 async function checkAndLaunch() {
@@ -516,8 +526,15 @@ function createWindow() {
 
     const splashWorkArea = getSplashDisplayWorkArea();
     if (splashWorkArea) {
-        const windowWidth = windowOptions.width;
-        const windowHeight = windowOptions.height;
+        let windowWidth = windowOptions.width;
+        let windowHeight = windowOptions.height;
+
+        if (windowWidth > splashWorkArea.width) windowWidth = splashWorkArea.width;
+        if (windowHeight > splashWorkArea.height) windowHeight = splashWorkArea.height;
+
+        windowOptions.width = windowWidth;
+        windowOptions.height = windowHeight;
+
         const centeredX = Math.round(splashWorkArea.x + ((splashWorkArea.width - windowWidth) / 2));
         const centeredY = Math.round(splashWorkArea.y + ((splashWorkArea.height - windowHeight) / 2));
         windowOptions.x = centeredX;
@@ -528,10 +545,29 @@ function createWindow() {
 
     mainWindow.once('ready-to-show', () => {
         sendSplashStatus({ status: 'Starting', detail: 'Finalizing interface...' });
-        setTimeout(() => {
-            if (splashWorkArea) {
-                mainWindow.setPosition(windowOptions.x, windowOptions.y);
+        
+        // Recalculate bounds right before showing in case the user dragged the splash screen while loading
+        if (splashWindow && !splashWindow.isDestroyed()) {
+            const currentSplashBounds = splashWindow.getBounds();
+            const splashCenter = {
+                x: Math.round(currentSplashBounds.x + (currentSplashBounds.width / 2)),
+                y: Math.round(currentSplashBounds.y + (currentSplashBounds.height / 2))
+            };
+            const display = screen.getDisplayNearestPoint(splashCenter);
+            if (display && display.workArea) {
+                const wa = display.workArea;
+                let currentBounds = mainWindow.getBounds();
+                let nw = currentBounds.width;
+                let nh = currentBounds.height;
+                if (nw > wa.width) nw = wa.width;
+                if (nh > wa.height) nh = wa.height;
+                const nx = Math.round(wa.x + (wa.width - nw) / 2);
+                const ny = Math.round(wa.y + (wa.height - nh) / 2);
+                mainWindow.setBounds({ x: nx, y: ny, width: nw, height: nh });
             }
+        }
+
+        setTimeout(() => {
             if (splashWindow) {
                 splashWindow.close();
                 splashWindow = null;
