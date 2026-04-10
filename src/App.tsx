@@ -36,6 +36,7 @@ import CrashModal from './components/CrashModal';
 import JavaRequiredModal from './components/JavaRequiredModal';
 import GuidePromptModal from './components/GuidePromptModal';
 import GuideOverlay from './components/GuideOverlay';
+import { resolveModeView, resolveStartupDestination } from './lib/startupPages';
 import { syncCustomFonts } from './services/fontManager';
 import { updateShadcnVars } from './lib/utils';
 import { getGuideDefaultView, getGuideSteps, GuideMode, isGuideMode } from './lib/guideSteps';
@@ -258,52 +259,6 @@ const GUIDE_PROMPT_SESSION_DEFAULTS: Record<GuideMode, boolean> = {
     tools: false
 };
 
-const resolveStartupDestination = (startPageSetting) => {
-    const requestedView = typeof startPageSetting === 'string' ? startPageSetting : 'dashboard';
-
-    switch (requestedView) {
-        case 'server-dashboard':
-            return { mode: 'server', view: 'server-dashboard' };
-        case 'tools-dashboard':
-            return { mode: 'tools', view: 'tools-dashboard' };
-        case 'open-client':
-            if (isFeatureEnabled('openClientPage')) {
-                return { mode: 'client', view: 'open-client' };
-            }
-            return { mode: 'launcher', view: 'dashboard' };
-        case 'library':
-            return { mode: 'launcher', view: 'library' };
-        case 'dashboard':
-        default:
-            return { mode: 'launcher', view: 'dashboard' };
-    }
-};
-
-const resolveModeView = (mode, requestedView) => {
-    const launcherViews = new Set(['dashboard', 'library', 'search', 'skins', 'styling', 'settings', 'extensions']);
-    const serverViews = new Set(['server-dashboard', 'search', 'styling', 'server-library', 'server-settings']);
-    const clientViews = new Set(['open-client', 'skins', 'extensions', 'styling', 'mods', 'settings']);
-    const toolsViews = new Set(['tools-dashboard', 'settings']);
-
-    if (mode === 'launcher') {
-        return launcherViews.has(requestedView) ? requestedView : 'dashboard';
-    }
-
-    if (mode === 'server') {
-        return serverViews.has(requestedView) ? requestedView : 'server-dashboard';
-    }
-
-    if (mode === 'client') {
-        return clientViews.has(requestedView) ? requestedView : 'open-client';
-    }
-
-    if (mode === 'tools') {
-        return toolsViews.has(requestedView) ? requestedView : 'tools-dashboard';
-    }
-
-    return requestedView || 'dashboard';
-};
-
 function App() {
     const { t, i18n } = useTranslation();
     const prefersReducedMotion = useReducedMotion();
@@ -321,6 +276,9 @@ function App() {
     const [searchCategory, setSearchCategory] = useState(null);
     const [triggerCreateInstance, setTriggerCreateInstance] = useState(false);
     const [appSettings, setAppSettings] = useState<any>({});
+    const startupPageOptions = React.useMemo(() => ({
+        openClientEnabled: isFeatureEnabled('openClientPage')
+    }), []);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [appVersion, setAppVersion] = useState('');
@@ -484,25 +442,25 @@ function App() {
 
     useEffect(() => {
         if (currentMode === 'launcher' && currentView !== 'instance-details') {
-            lastClientView.current = resolveModeView('launcher', currentView);
+            lastClientView.current = resolveModeView('launcher', currentView, startupPageOptions);
         }
         if (currentMode === 'server' && currentView !== 'server-details') {
-            lastServerView.current = resolveModeView('server', currentView);
+            lastServerView.current = resolveModeView('server', currentView, startupPageOptions);
         }
         if (currentMode === 'tools') {
-            lastToolsView.current = resolveModeView('tools', currentView);
+            lastToolsView.current = resolveModeView('tools', currentView, startupPageOptions);
         }
-    }, [currentView, currentMode]);
+    }, [currentView, currentMode, startupPageOptions]);
 
     useEffect(() => {
         Analytics.init();
 
         const checkSession = async () => {
-            let startupDestination = resolveStartupDestination('dashboard');
+            let startupDestination = resolveStartupDestination('launcher:dashboard', startupPageOptions);
             try {
                 const settingsRes = await window.electronAPI?.getSettings();
                 if (settingsRes.success && settingsRes.settings.startPage) {
-                    startupDestination = resolveStartupDestination(settingsRes.settings.startPage);
+                    startupDestination = resolveStartupDestination(settingsRes.settings.startPage, startupPageOptions);
                 }
             } catch (e) { }
 
@@ -672,7 +630,7 @@ function App() {
             if (removeCrashReportListener) removeCrashReportListener();
             if (removeJavaRequiredListener) removeJavaRequiredListener();
         };
-    }, []);
+    }, [startupPageOptions]);
 
     const handleCloseJavaRequiredModal = () => {
         if (isInstallingRequiredJava) return;
@@ -767,7 +725,7 @@ function App() {
         };
         const res = await window.electronAPI.saveSettings(newSettings);
         if (res.success) {
-            const startupDestination = resolveStartupDestination(startPage);
+            const startupDestination = resolveStartupDestination(startPage, startupPageOptions);
             setAppSettings(newSettings);
             setSelectedInstance(null);
             setSelectedServer(null);
@@ -857,11 +815,11 @@ function App() {
                 console.error("Failed to prefetch skin", e);
             }
         }
-        let startupDestination = resolveStartupDestination('dashboard');
+        let startupDestination = resolveStartupDestination('launcher:dashboard', startupPageOptions);
         try {
             const settingsRes = await window.electronAPI.getSettings();
             if (settingsRes.success && settingsRes.settings.startPage) {
-                startupDestination = resolveStartupDestination(settingsRes.settings.startPage);
+                startupDestination = resolveStartupDestination(settingsRes.settings.startPage, startupPageOptions);
             }
         } catch (e) { }
 
@@ -919,13 +877,13 @@ function App() {
     const handleModeSelect = (mode) => {
         setCurrentMode(mode);
         if (mode === 'launcher') {
-            setCurrentView(resolveModeView('launcher', lastClientView.current));
+            setCurrentView(resolveModeView('launcher', lastClientView.current, startupPageOptions));
         } else if (mode === 'server') {
-            setCurrentView(resolveModeView('server', lastServerView.current));
+            setCurrentView(resolveModeView('server', lastServerView.current, startupPageOptions));
         } else if (mode === 'client') {
-            setCurrentView(resolveModeView('client', 'open-client'));
+            setCurrentView(resolveModeView('client', 'open-client', startupPageOptions));
         } else if (mode === 'tools') {
-            setCurrentView(resolveModeView('tools', lastToolsView.current));
+            setCurrentView(resolveModeView('tools', lastToolsView.current, startupPageOptions));
         }
         setSelectedInstance(null);
         setSelectedServer(null);
@@ -1376,7 +1334,10 @@ function App() {
             )}
 
             {isStartupModeSelectionOpen && (
-                <StartupModeSelectionModal onSelect={handleStartupModeSelect} />
+                <StartupModeSelectionModal
+                    onSelect={handleStartupModeSelect}
+                    canAccessSkins={canAccessSkins}
+                />
             )}
 
             {guidePromptMode && (

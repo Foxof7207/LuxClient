@@ -31,17 +31,167 @@ function stripExternalSuffix(value) {
         .trim();
 }
 
+function readJsonSyncSafe(filePath) {
+    try {
+        if (!filePath || !fs.existsSync(filePath)) return null;
+        return fs.readJsonSync(filePath);
+    } catch (_) {
+        return null;
+    }
+}
+
+function collectAbsolutePathStrings(value, depth = 0, maxDepth = 6, bucket = []) {
+    if (depth > maxDepth || value === null || value === undefined) {
+        return bucket;
+    }
+
+    if (typeof value === 'string') {
+        const candidate = value.trim();
+        if (candidate && path.isAbsolute(candidate)) {
+            bucket.push(candidate);
+        }
+        return bucket;
+    }
+
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            collectAbsolutePathStrings(entry, depth + 1, maxDepth, bucket);
+        }
+        return bucket;
+    }
+
+    if (typeof value === 'object') {
+        for (const entry of Object.values(value)) {
+            collectAbsolutePathStrings(entry, depth + 1, maxDepth, bucket);
+        }
+    }
+
+    return bucket;
+}
+
+function pushDirCandidate(target, dirPath) {
+    const normalized = String(dirPath || '').trim();
+    if (!normalized) return;
+    const resolved = path.resolve(normalized);
+    if (!fs.existsSync(resolved)) return;
+    if (!target.includes(resolved)) {
+        target.push(resolved);
+    }
+}
+
+function expandModrinthCandidatePath(rawPath) {
+    const candidates = [];
+    const resolved = path.resolve(String(rawPath || '').trim());
+    if (!resolved) return candidates;
+
+    const baseName = path.basename(resolved).toLowerCase();
+    pushDirCandidate(candidates, resolved);
+    if (baseName !== 'profiles') {
+        pushDirCandidate(candidates, path.join(resolved, 'profiles'));
+    }
+    pushDirCandidate(candidates, path.join(resolved, '.minecraft', 'profiles'));
+    return candidates;
+}
+
+function expandCurseForgeCandidatePath(rawPath) {
+    const candidates = [];
+    const resolved = path.resolve(String(rawPath || '').trim());
+    if (!resolved) return candidates;
+
+    const baseName = path.basename(resolved).toLowerCase();
+    pushDirCandidate(candidates, resolved);
+    if (baseName !== 'instances') {
+        pushDirCandidate(candidates, path.join(resolved, 'Instances'));
+        pushDirCandidate(candidates, path.join(resolved, 'instances'));
+    }
+    pushDirCandidate(candidates, path.join(resolved, 'minecraft', 'Instances'));
+    pushDirCandidate(candidates, path.join(resolved, 'Minecraft', 'Instances'));
+    return candidates;
+}
+
+function getConfiguredExternalRootCandidates(source, homeDir, roamingDir) {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const appSettings = readJsonSyncSafe(settingsPath) || {};
+
+    const modrinthConfigPaths = [
+        path.join(roamingDir, 'com.modrinth.theseus', 'settings.json'),
+        path.join(roamingDir, 'com.modrinth.theseus', 'state.json'),
+        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'settings.json'),
+        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'config.json')
+    ];
+
+    const curseForgeConfigPaths = [
+        path.join(roamingDir, 'CurseForge', 'Settings.json'),
+        path.join(roamingDir, 'CurseForge', 'settings.json'),
+        path.join(roamingDir, 'CurseForge', 'Install', 'Settings.json'),
+        path.join(roamingDir, 'CurseForge', 'Install', 'settings.json')
+    ];
+
+    const configuredValues = [];
+
+    if (Array.isArray(appSettings.externalLauncherPaths)) {
+        configuredValues.push(...appSettings.externalLauncherPaths);
+    }
+    if (Array.isArray(appSettings.externalModrinthPaths) && source === 'modrinth') {
+        configuredValues.push(...appSettings.externalModrinthPaths);
+    }
+    if (Array.isArray(appSettings.externalCurseforgePaths) && source === 'curseforge') {
+        configuredValues.push(...appSettings.externalCurseforgePaths);
+    }
+
+    const configPaths = source === 'modrinth' ? modrinthConfigPaths : curseForgeConfigPaths;
+    for (const configPath of configPaths) {
+        const parsed = readJsonSyncSafe(configPath);
+        if (parsed) {
+            configuredValues.push(parsed);
+        }
+    }
+
+    const absolutePaths = collectAbsolutePathStrings(configuredValues);
+    const expanded = [];
+
+    for (const absolutePath of absolutePaths) {
+        const variants = source === 'modrinth'
+            ? expandModrinthCandidatePath(absolutePath)
+            : expandCurseForgeCandidatePath(absolutePath);
+        for (const variant of variants) {
+            pushDirCandidate(expanded, variant);
+        }
+    }
+
+    return expanded;
+}
+
 function getExternalLauncherRoots() {
     if (process.platform !== 'win32') return [];
 
     const homeDir = require('os').homedir();
     const roamingDir = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
 
-    return [
+    const defaults = [
         { source: 'modrinth', baseDir: path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'profiles') },
         { source: 'modrinth', baseDir: path.join(roamingDir, 'com.modrinth.theseus', 'profiles') },
         { source: 'curseforge', baseDir: path.join(homeDir, 'curseforge', 'minecraft', 'Instances') }
     ];
+
+    const dynamicRoots = [
+        ...getConfiguredExternalRootCandidates('modrinth', homeDir, roamingDir).map((baseDir) => ({ source: 'modrinth', baseDir })),
+        ...getConfiguredExternalRootCandidates('curseforge', homeDir, roamingDir).map((baseDir) => ({ source: 'curseforge', baseDir }))
+    ];
+
+    const deduped = [];
+    const seen = new Set();
+    for (const root of [...defaults, ...dynamicRoots]) {
+        const source = String(root?.source || '').trim().toLowerCase();
+        const baseDir = String(root?.baseDir || '').trim();
+        if (!source || !baseDir) continue;
+        const key = `${source}::${path.resolve(baseDir).toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push({ source, baseDir: path.resolve(baseDir) });
+    }
+
+    return deduped;
 }
 
 function normalizeLoaderFromString(value) {
@@ -60,6 +210,90 @@ function normalizeLoaderFromString(value) {
     if (raw.includes('forge')) return 'forge';
     if (raw.includes('vanilla')) return 'vanilla';
     return raw;
+}
+
+function inferVersionFromName(name) {
+    const raw = String(name || '');
+    const match = raw.match(/\b\d+\.\d+(?:\.\d+)?\b/);
+    return match ? match[0] : '';
+}
+
+async function inferVersionFromProfileDirectory(profileDir) {
+    const versionRoots = [
+        path.join(profileDir, '.minecraft', 'versions'),
+        path.join(profileDir, 'versions')
+    ];
+
+    for (const versionRoot of versionRoots) {
+        try {
+            if (!await fs.pathExists(versionRoot)) continue;
+            const entries = await fs.readdir(versionRoot, { withFileTypes: true });
+            const versionNames = entries
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => String(entry.name || '').trim())
+                .filter(Boolean)
+                .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+
+            for (const candidate of versionNames) {
+                const inferred = inferVersionFromName(candidate);
+                if (inferred) {
+                    return inferred;
+                }
+            }
+        } catch (_) {
+            // Ignore scan errors and continue.
+        }
+    }
+
+    return '';
+}
+
+async function inferVersionFromProfileLogs(profileDir) {
+    const logCandidates = [
+        path.join(profileDir, 'logs', 'launcher_log.txt'),
+        path.join(profileDir, 'logs', 'latest.log')
+    ];
+
+    const versionPatterns = [
+        /--fml\.mcVersion,\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /--version,\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /minecraft server version\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i,
+        /minecraft\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i
+    ];
+
+    for (const logPath of logCandidates) {
+        try {
+            if (!await fs.pathExists(logPath)) continue;
+            const content = await fs.readFile(logPath, 'utf8');
+
+            for (const pattern of versionPatterns) {
+                const match = content.match(pattern);
+                if (match && match[1]) {
+                    return String(match[1]).trim();
+                }
+            }
+        } catch (_) {
+            // Ignore log parsing failures.
+        }
+    }
+
+    return '';
+}
+
+function escapeRegex(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasDelimitedToken(haystack, token) {
+    const normalizedHaystack = String(haystack || '').trim().toLowerCase();
+    const normalizedToken = String(token || '').trim().toLowerCase();
+
+    if (!normalizedHaystack || !normalizedToken) {
+        return false;
+    }
+
+    const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegex(normalizedToken)}($|[^a-z0-9])`, 'i');
+    return pattern.test(normalizedHaystack);
 }
 
 function parseFiniteNumber(value) {
@@ -205,6 +439,7 @@ async function resolveSharedVersionId(versionsDir, details) {
     const version = String(details?.version || '').trim().toLowerCase();
     const loader = String(details?.loader || '').trim().toLowerCase();
     const loaderVersion = String(details?.loaderVersion || '').trim().toLowerCase();
+    const versionAliases = buildGameVersionAliases(version).map((entry) => entry.toLowerCase());
 
     let bestMatch = '';
     let bestScore = -1;
@@ -213,11 +448,11 @@ async function resolveSharedVersionId(versionsDir, details) {
         const current = versionName.toLowerCase();
         let score = 0;
 
-        if (version && current.includes(version)) score += 40;
-        if (loaderVersion && current.includes(loaderVersion)) score += 35;
-        if (loader && current.includes(loader)) score += 20;
-        if (current.startsWith(version)) score += 10;
-        if (current.startsWith(`${loader}-`) || current.includes(`-${loader}-`)) score += 10;
+        if (versionAliases.some((alias) => hasDelimitedToken(current, alias))) score += 60;
+        if (loaderVersion && hasDelimitedToken(current, loaderVersion)) score += 35;
+        if (loader && hasDelimitedToken(current, loader)) score += 20;
+        if (version && current.endsWith(`-${version}`)) score += 12;
+        if (loader && (current.startsWith(`${loader}-`) || current.includes(`-${loader}-`))) score += 10;
 
         if (score > bestScore) {
             bestScore = score;
@@ -398,6 +633,7 @@ async function readExternalLaunchDetails(externalProfile) {
     let loaderVersion = '';
     let explicitVersionId = '';
     let assetIndex = '';
+    const fallbackProfileName = path.basename(profileDir);
 
     if (source === 'modrinth') {
         const profile = await readJsonIfExists(path.join(profileDir, 'profile.json'));
@@ -515,9 +751,25 @@ async function readExternalLaunchDetails(externalProfile) {
     }
 
     if (!version) {
-        const availableVersions = await listDirectoryNames(versionsDir);
-        const directVersionMatch = availableVersions.find((entry) => /^\d+\.\d+(?:\.\d+)?$/i.test(entry));
-        if (directVersionMatch) version = directVersionMatch;
+        version = inferVersionFromName(fallbackProfileName);
+    }
+
+    if (!version) {
+        version = await inferVersionFromProfileDirectory(profileDir);
+    }
+
+    if (!version) {
+        version = await inferVersionFromProfileLogs(profileDir);
+    }
+
+    if (!version) {
+        const availableVersions = (await listDirectoryNames(versionsDir))
+            .map((entry) => inferVersionFromName(entry))
+            .filter(Boolean)
+            .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+        if (availableVersions.length > 0) {
+            version = availableVersions[0];
+        }
     }
 
     if (!loader) {

@@ -7,6 +7,7 @@ import ToggleBox from '../components/ToggleBox';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PageHeader from '../components/layout/PageHeader';
 import PageContent from '../components/layout/PageContent';
+import { getDefaultStartupValueForMode, getStartupModes, normalizeStartupPageValue } from '../lib/startupPages';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
@@ -50,6 +51,10 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
     const { t, i18n } = useTranslation();
     const { addNotification } = useNotification();
     const isClientSettings = mode === 'client';
+    const startupPageOptions = {
+        openClientEnabled: isFeatureEnabled('openClientPage')
+    };
+    const startupModes = getStartupModes(startupPageOptions);
     const animationPresetOptions = [
         {
             id: 'cinematic',
@@ -108,6 +113,7 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
         showModrinthInstancesInLibrary: true,
         showCurseforgeInstancesInLibrary: true,
         javaProfile: 'default',
+        externalLauncherPaths: [],
         minimizeToTray: false,
         lowGraphicsMode: false,
         legacyGpuSupport: false,
@@ -117,6 +123,10 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
             autoRestore: false
         }
     });
+    const [externalLauncherPathInput, setExternalLauncherPathInput] = useState('');
+    const normalizedStartupPage = normalizeStartupPageValue(settings.startPage, startupPageOptions);
+    const selectedStartupModeId = normalizedStartupPage.split(':')[0] || 'launcher';
+    const selectedStartupMode = startupModes.find((startupMode) => startupMode.id === selectedStartupModeId) ?? startupModes[0];
 
     const [cloudStatus, setCloudStatus] = useState({
         GOOGLE_DRIVE: { loggedIn: false, user: null },
@@ -252,13 +262,7 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                 loadedSettings.language = languageMap[loadedSettings.language];
             }
 
-            const validStartupPages = ['dashboard', 'open-client', 'server-dashboard', 'tools-dashboard'];
-            if (!validStartupPages.includes(loadedSettings.startPage)) {
-                loadedSettings.startPage = 'dashboard';
-            }
-            if (!isFeatureEnabled('openClientPage') && loadedSettings.startPage === 'open-client') {
-                loadedSettings.startPage = 'dashboard';
-            }
+            loadedSettings.startPage = normalizeStartupPageValue(loadedSettings.startPage, startupPageOptions);
 
             setSettings(loadedSettings);
             initialSettingsRef.current = loadedSettings;
@@ -342,6 +346,10 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
             addNotification(t('settings.save_failed'), 'error');
         }
     };
+
+    const handleStartupModeChange = (modeId) => {
+        handleChange('startPage', getDefaultStartupValueForMode(modeId, startupPageOptions));
+    };
     const handleUpdate = async (key, value) => {
         const newSettings = { ...settings, [key]: value };
         setSettings(newSettings);
@@ -392,6 +400,45 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
         if (result && !result.canceled && result.filePaths && result.filePaths[0]) {
             handleChange('instancesPath', result.filePaths[0]);
         }
+    };
+
+    const normalizeExternalLauncherPaths = (paths) => {
+        if (!Array.isArray(paths)) return [];
+        const normalized = paths
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+        return [...new Set(normalized)];
+    };
+
+    const handleAddExternalLauncherPath = (pathValue) => {
+        const normalizedPath = String(pathValue || '').trim();
+        if (!normalizedPath) {
+            return;
+        }
+        const currentPaths = normalizeExternalLauncherPaths(settings.externalLauncherPaths);
+        if (currentPaths.includes(normalizedPath)) {
+            addNotification(t('settings.instance.external_paths_exists', 'Path already exists.'), 'warning');
+            return;
+        }
+        handleChange('externalLauncherPaths', [...currentPaths, normalizedPath]);
+    };
+
+    const handleBrowseExternalLauncherPath = async () => {
+        const result = await window.electronAPI.selectFolder();
+        if (result && !result.canceled && result.filePaths && result.filePaths[0]) {
+            handleAddExternalLauncherPath(result.filePaths[0]);
+        }
+    };
+
+    const handleAddExternalLauncherPathFromInput = () => {
+        handleAddExternalLauncherPath(externalLauncherPathInput);
+        setExternalLauncherPathInput('');
+    };
+
+    const handleRemoveExternalLauncherPath = (pathToRemove) => {
+        const currentPaths = normalizeExternalLauncherPaths(settings.externalLauncherPaths);
+        const nextPaths = currentPaths.filter((entry) => entry !== pathToRemove);
+        handleChange('externalLauncherPaths', nextPaths);
     };
 
     const handleManualSave = () => {
@@ -593,22 +640,48 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                                         <Label className="text-foreground">{t('settings.general.startup_page')}</Label>
                                         <p className="text-xs text-muted-foreground mt-1">{t('settings.general.startup_page_desc')}</p>
                                     </div>
-                                    <Select
-                                        value={settings.startPage || 'dashboard'}
-                                        onValueChange={(value) => handleChange('startPage', value)}
-                                    >
-                                        <SelectTrigger className="w-[180px]">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="dashboard">{t('common.launcher', 'Launcher')}</SelectItem>
-                                            {isFeatureEnabled('openClientPage') && (
-                                                <SelectItem value="open-client">{t('common.client', 'Client')}</SelectItem>
-                                            )}
-                                            <SelectItem value="server-dashboard">{t('common.server', 'Server')}</SelectItem>
-                                            <SelectItem value="tools-dashboard">{t('common.useful_tools', 'Useful Tools')}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                    <div className="grid w-full max-w-[540px] grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground">
+                                                {t('settings.general.startup_section', 'Section')}
+                                            </Label>
+                                            <Select
+                                                value={selectedStartupMode?.id ?? 'launcher'}
+                                                onValueChange={handleStartupModeChange}
+                                            >
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {startupModes.map((startupMode) => (
+                                                        <SelectItem key={startupMode.id} value={startupMode.id}>
+                                                            {t(startupMode.titleKey, startupMode.titleFallback)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground">
+                                                {t('settings.general.startup_subpage', 'Page')}
+                                            </Label>
+                                            <Select
+                                                value={normalizedStartupPage}
+                                                onValueChange={(value) => handleChange('startPage', value)}
+                                            >
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {(selectedStartupMode?.pages ?? []).map((page) => (
+                                                        <SelectItem key={page.value} value={page.value}>
+                                                            {t(page.labelKey, page.labelFallback)}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -973,6 +1046,51 @@ function Settings({ mode = 'default', onRestartGuide = null }) {
                                     <p className="text-xs text-muted-foreground mt-2">
                                         {t('settings.instance.storage_path_desc', 'Leave empty to use the default folder. Restart the launcher after changing this path.')}
                                     </p>
+                                </div>
+
+                                <Separator />
+
+                                <div>
+                                    <Label className="mb-2 block">{t('settings.instance.external_paths_label', 'External Launcher Paths')}</Label>
+                                    <p className="text-xs text-muted-foreground mb-3">
+                                        {t('settings.instance.external_paths_desc', 'Add custom folders where Modrinth/CurseForge profiles are stored if you installed them outside default locations.')}
+                                    </p>
+                                    <div className="flex flex-col gap-2 sm:flex-row">
+                                        <Input
+                                            value={externalLauncherPathInput}
+                                            onChange={(e) => setExternalLauncherPathInput(e.target.value)}
+                                            placeholder={t('settings.instance.external_paths_placeholder', 'e.g. D:\\Launchers\\Modrinth\\profiles')}
+                                            className="flex-1 font-mono text-xs"
+                                        />
+                                        <Button variant="outline" size="sm" onClick={handleBrowseExternalLauncherPath}>
+                                            <FolderOpen />
+                                            {t('settings.java.browse', 'Browse')}
+                                        </Button>
+                                        <Button variant="default" size="sm" onClick={handleAddExternalLauncherPathFromInput}>
+                                            <Plus />
+                                            {t('common.add', 'Add')}
+                                        </Button>
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                        {normalizeExternalLauncherPaths(settings.externalLauncherPaths).length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                {t('settings.instance.external_paths_empty', 'No custom external paths configured.')}
+                                            </p>
+                                        )}
+                                        {normalizeExternalLauncherPaths(settings.externalLauncherPaths).map((externalPath) => (
+                                            <div key={externalPath} className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-2 py-1.5">
+                                                <span className="flex-1 truncate text-xs font-mono" title={externalPath}>{externalPath}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-7 px-2"
+                                                    onClick={() => handleRemoveExternalLauncherPath(externalPath)}
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 <Separator />

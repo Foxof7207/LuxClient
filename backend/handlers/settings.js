@@ -18,6 +18,7 @@ module.exports = (ipcMain) => {
         copySettingsEnabled: false,
         copySettingsSourceInstance: '',
         instancesPath: '',
+        externalLauncherPaths: [],
         optimization: true,
         focusMode: false,
         minimalMode: true,
@@ -84,6 +85,9 @@ module.exports = (ipcMain) => {
     const buildSettings = (settings = {}) => ({
         ...defaultSettings,
         ...settings,
+        externalLauncherPaths: Array.isArray(settings.externalLauncherPaths)
+            ? [...new Set(settings.externalLauncherPaths.map((entry) => String(entry || '').trim()).filter(Boolean))]
+            : [],
         theme: {
             ...defaultSettings.theme,
             ...normalizeThemeSchema(settings.theme || {})

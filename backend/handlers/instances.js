@@ -305,6 +305,136 @@ function getMimeTypeFromImagePath(filePath) {
     return '';
 }
 
+function readJsonSyncSafe(filePath) {
+    try {
+        if (!filePath || !fs.existsSync(filePath)) return null;
+        return fs.readJsonSync(filePath);
+    } catch (_) {
+        return null;
+    }
+}
+
+function collectAbsolutePathStrings(value, depth = 0, maxDepth = 6, bucket = []) {
+    if (depth > maxDepth || value === null || value === undefined) {
+        return bucket;
+    }
+
+    if (typeof value === 'string') {
+        const candidate = value.trim();
+        if (candidate && path.isAbsolute(candidate)) {
+            bucket.push(candidate);
+        }
+        return bucket;
+    }
+
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            collectAbsolutePathStrings(entry, depth + 1, maxDepth, bucket);
+        }
+        return bucket;
+    }
+
+    if (typeof value === 'object') {
+        for (const entry of Object.values(value)) {
+            collectAbsolutePathStrings(entry, depth + 1, maxDepth, bucket);
+        }
+    }
+
+    return bucket;
+}
+
+function pushDirCandidate(target, dirPath) {
+    const normalized = String(dirPath || '').trim();
+    if (!normalized) return;
+    const resolved = path.resolve(normalized);
+    if (!fs.existsSync(resolved)) return;
+    if (!target.includes(resolved)) {
+        target.push(resolved);
+    }
+}
+
+function expandModrinthCandidatePath(rawPath) {
+    const candidates = [];
+    const resolved = path.resolve(String(rawPath || '').trim());
+    if (!resolved) return candidates;
+
+    const baseName = path.basename(resolved).toLowerCase();
+    pushDirCandidate(candidates, resolved);
+    if (baseName !== 'profiles') {
+        pushDirCandidate(candidates, path.join(resolved, 'profiles'));
+    }
+    pushDirCandidate(candidates, path.join(resolved, '.minecraft', 'profiles'));
+    return candidates;
+}
+
+function expandCurseForgeCandidatePath(rawPath) {
+    const candidates = [];
+    const resolved = path.resolve(String(rawPath || '').trim());
+    if (!resolved) return candidates;
+
+    const baseName = path.basename(resolved).toLowerCase();
+    pushDirCandidate(candidates, resolved);
+    if (baseName !== 'instances') {
+        pushDirCandidate(candidates, path.join(resolved, 'Instances'));
+        pushDirCandidate(candidates, path.join(resolved, 'instances'));
+    }
+    pushDirCandidate(candidates, path.join(resolved, 'minecraft', 'Instances'));
+    pushDirCandidate(candidates, path.join(resolved, 'Minecraft', 'Instances'));
+    return candidates;
+}
+
+function getConfiguredExternalRootCandidates(source, homeDir, roamingDir) {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const appSettings = readJsonSyncSafe(settingsPath) || {};
+
+    const modrinthConfigPaths = [
+        path.join(roamingDir, 'com.modrinth.theseus', 'settings.json'),
+        path.join(roamingDir, 'com.modrinth.theseus', 'state.json'),
+        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'settings.json'),
+        path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'config.json')
+    ];
+
+    const curseForgeConfigPaths = [
+        path.join(roamingDir, 'CurseForge', 'Settings.json'),
+        path.join(roamingDir, 'CurseForge', 'settings.json'),
+        path.join(roamingDir, 'CurseForge', 'Install', 'Settings.json'),
+        path.join(roamingDir, 'CurseForge', 'Install', 'settings.json')
+    ];
+
+    const configuredValues = [];
+
+    if (Array.isArray(appSettings.externalLauncherPaths)) {
+        configuredValues.push(...appSettings.externalLauncherPaths);
+    }
+    if (Array.isArray(appSettings.externalModrinthPaths) && source === 'modrinth') {
+        configuredValues.push(...appSettings.externalModrinthPaths);
+    }
+    if (Array.isArray(appSettings.externalCurseforgePaths) && source === 'curseforge') {
+        configuredValues.push(...appSettings.externalCurseforgePaths);
+    }
+
+    const configPaths = source === 'modrinth' ? modrinthConfigPaths : curseForgeConfigPaths;
+    for (const configPath of configPaths) {
+        const parsed = readJsonSyncSafe(configPath);
+        if (parsed) {
+            configuredValues.push(parsed);
+        }
+    }
+
+    const absolutePaths = collectAbsolutePathStrings(configuredValues);
+    const expanded = [];
+    for (const absolutePath of absolutePaths) {
+        const variants = source === 'modrinth'
+            ? expandModrinthCandidatePath(absolutePath)
+            : expandCurseForgeCandidatePath(absolutePath);
+        for (const variant of variants) {
+            pushDirCandidate(expanded, variant);
+        }
+    }
+
+    return expanded;
+}
+
 async function readImageAsDataUrl(imagePath) {
     if (!imagePath) return '';
     const exists = await fs.pathExists(imagePath);
@@ -407,7 +537,7 @@ function getExternalLauncherRoots() {
     const homeDir = os.homedir();
     const roamingDir = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
 
-    const roots = [
+    const defaults = [
         {
             source: 'modrinth',
             baseDir: path.join(homeDir, 'AppData', 'Roaming', 'ModrinthApp', 'profiles')
@@ -422,7 +552,24 @@ function getExternalLauncherRoots() {
         }
     ];
 
-    return roots;
+    const dynamicRoots = [
+        ...getConfiguredExternalRootCandidates('modrinth', homeDir, roamingDir).map((baseDir) => ({ source: 'modrinth', baseDir })),
+        ...getConfiguredExternalRootCandidates('curseforge', homeDir, roamingDir).map((baseDir) => ({ source: 'curseforge', baseDir }))
+    ];
+
+    const deduped = [];
+    const seen = new Set();
+    for (const root of [...defaults, ...dynamicRoots]) {
+        const source = String(root?.source || '').trim().toLowerCase();
+        const baseDir = String(root?.baseDir || '').trim();
+        if (!source || !baseDir) continue;
+        const key = `${source}::${path.resolve(baseDir).toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push({ source, baseDir: path.resolve(baseDir) });
+    }
+
+    return deduped;
 }
 
 async function readExternalProfileConfig(source, profileDir, fallbackName) {
@@ -3383,7 +3530,16 @@ module.exports = (ipcMain, win) => {
                 }
                 await new Promise(resolve => setTimeout(resolve, 500));
 
-                const dir = path.join(instancesDir, name);
+                const normalizedName = String(name || '').trim().toLowerCase();
+                const mergedInstances = await getMergedInstances();
+                const matchedExternalInstance = mergedInstances.find((entry) => {
+                    const entryName = String(entry?.name || '').trim().toLowerCase();
+                    return entryName === normalizedName && String(entry?.instanceType || '').toLowerCase() === 'external';
+                });
+
+                const externalPath = String(matchedExternalInstance?.externalPath || '').trim();
+                const dir = externalPath || path.join(instancesDir, name);
+
                 if (!await fs.pathExists(dir)) {
                     return { success: true };
                 }
