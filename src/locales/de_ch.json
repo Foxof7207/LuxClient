@@ -128,7 +128,12 @@
         "browse": "Durchsuchen",
         "no_targets": "Keine Ziele verfügbar",
         "image": "Bild",
-        "add": "Hinzufügen"
+        "add": "Hinzufügen",
+        "remove": "Entferne",
+        "add_to_actionbar": "Zue Actionleiste hinzuefüege",
+        "added": "Zue Actionleiste hinzuegfüegt",
+        "remove_from_actionbar": "Vo Actionleiste entferne",
+        "removed": "Vo Actionleiste entfernt"
     },
     "home": {
         "welcome_back": "Willkomme zrugg!",
@@ -349,7 +354,9 @@
         "mirror_both": "Both",
         "history": "History",
         "undo": "Undo",
-        "redo": "Redo"
+        "redo": "Redo",
+        "drop_skin": "Skin da ahzoge zum Aawände",
+        "drop_success": "Neui Skin aagwändet"
     },
     "styling": {
         "title": "Erscheinigsbild",
@@ -511,7 +518,6 @@
             "auto_mod_install_desc": "Installiert automatisch usgwehlti Mods bim Erstelle vo neune Instanze. Nöd verfüegbari Mods wärdet übersprunge.",
             "minimize_to_tray": "In den System-Tray minimieren",
             "minimize_to_tray_desc": "Versteckt den Launcher im System-Tray beim Schließen oder Minimieren.",
-            "smart_log_analytics": "Smart Log Analytics",
             "smart_log_analytics_desc": "Analysiert Abstürz automatisch und schlaat Lösige vor."
         },
         "cloud": {
