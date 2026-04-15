@@ -3968,7 +3968,9 @@ module.exports = (ipcMain, win) => {
         });
         ipcMain.handle('instance:install-local-mod', async (_, instanceName, filePath, projectType = 'mod') => {
             try {
-                const folder = projectType === 'resourcepack' ? 'resourcepacks' : 'mods';
+                let folder = 'mods';
+                if (projectType === 'resourcepack') folder = 'resourcepacks';
+                if (projectType === 'shader') folder = 'shaderpacks';
                 const destDir = path.join(instancesDir, instanceName, folder);
                 await fs.ensureDir(destDir);
 

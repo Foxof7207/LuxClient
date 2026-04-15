@@ -237,7 +237,10 @@
             "no_shaders": "Kei Shader gfunde",
             "check_folder_shaders": "Lueg de `shaderpacks`-Ordner im Instanz-Verzeichnis a",
             "browse_shaders": "Shader durchluege",
-            "preview": "Vorschau"
+            "preview": "Vorschau",
+            "drop_packs": "Resource Packs da ahzoge zum Installiere",
+            "drop_shaders": "Shader da ahzoge zum Installiere",
+            "accepting_archives": ".zip und .rar Dateie wäre aktzeptiert"
         },
         "search": {
             "placeholder": "Modrinth-ID iigäh oder nach Mod-Name sueche...",

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 console.log('[Preload] 🚀 Preload script wird ausgeführt...');
 try {
@@ -77,6 +77,19 @@ const electronAPI = {
     restartApp: () => ipcRenderer.invoke('app:restart'),
     uninstallLauncher: () => ipcRenderer.invoke('app:uninstall'),
     getInstances: () => ipcRenderer.invoke('instance:get-all'),
+    resolveDroppedFilePath: (file) => {
+        if (!file) return '';
+        if (typeof file.path === 'string' && file.path.length > 0) return file.path;
+        try {
+            if (webUtils && typeof webUtils.getPathForFile === 'function') {
+                const resolved = webUtils.getPathForFile(file);
+                return typeof resolved === 'string' ? resolved : '';
+            }
+        } catch (e) {
+            console.warn('[Preload] Failed to resolve dropped file path:', e?.message || e);
+        }
+        return '';
+    },
     installModpack: (url, name, iconUrl) => ipcRenderer.invoke('instance:install-modpack', url, name, iconUrl),
     searchModrinth: (query, facets, options) => ipcRenderer.invoke('modrinth:search', query, facets, options),
     modrinthSearch: (query, facets, options) => ipcRenderer.invoke('modrinth:search', query, facets, options),
@@ -84,7 +97,7 @@ const electronAPI = {
     deleteServerMod: (serverName, fileName, type) => ipcRenderer.invoke('server:delete-mod', serverName, fileName, type),
     installMod: (data) => ipcRenderer.invoke('modrinth:install', data),
     modrinthInstall: (data) => ipcRenderer.invoke('modrinth:install', data),
-    installLocalMod: (instanceName, filePath) => ipcRenderer.invoke('instance:install-local-mod', instanceName, filePath),
+    installLocalMod: (instanceName, filePath, projectType) => ipcRenderer.invoke('instance:install-local-mod', instanceName, filePath, projectType),
     getModVersions: (projectId, loaders, gameVersions, fallbackCurseForgeProjectId) => ipcRenderer.invoke('modrinth:get-versions', projectId, loaders, gameVersions, fallbackCurseForgeProjectId),
     getModrinthProject: (projectId) => ipcRenderer.invoke('modrinth:get-project', projectId),
     resolveDependencies: (versionId, loaders, gameVersions) => ipcRenderer.invoke('modrinth:resolve-dependencies', versionId, loaders, gameVersions),

@@ -232,7 +232,10 @@
             "no_shaders": "Nenašli sa žiadne shadery",
             "check_folder_shaders": "Skontrolujte priečinok `shaderpacks` v adresári inštancie",
             "browse_shaders": "Prehľadávať shadery",
-            "preview": "Náhľad"
+            "preview": "Náhľad",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Zadajte Modrinth ID alebo vyhľadajte názov módu...",

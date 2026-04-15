@@ -71,6 +71,7 @@ interface ElectronAPI {
   restartApp: () => Promise<any>;
   uninstallLauncher: () => Promise<any>;
   getInstances: () => Promise<any>;
+  resolveDroppedFilePath: (file: File) => string;
   installModpack: (url: string, name: string, iconUrl?: string) => Promise<any>;
   searchModrinth: (query: string, facets?: any, options?: any) => Promise<any>;
   modrinthSearch: (query: string, facets?: any, options?: any) => Promise<any>;

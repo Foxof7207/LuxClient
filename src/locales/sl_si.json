@@ -232,7 +232,10 @@
             "no_shaders": "Senčilnikov ni mogoče najti",
             "check_folder_shaders": "Preverite mapo `shaderpacks` v imeniku instance",
             "browse_shaders": "Brskaj med senčilniki",
-            "preview": "Predogled"
+            "preview": "Predogled",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Vnesite ID Modrinth ali poiščite ime moda...",

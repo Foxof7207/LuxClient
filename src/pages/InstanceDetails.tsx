@@ -192,6 +192,49 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         }
     }, [sortMethod, searchOffset, activeTab, provider]);
     useEffect(() => {
+        if (activeTab !== 'content') return;
+        if (contentView !== 'mods' && contentView !== 'resourcepacks' && contentView !== 'shaders') return;
+
+        let inFlight = false;
+
+        const refreshVisibleContent = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            try {
+                if (contentView === 'mods') {
+                    const res = await window.electronAPI.getMods(instance.name);
+                    if (res?.success && Array.isArray(res.mods)) setMods(res.mods);
+                } else if (contentView === 'resourcepacks') {
+                    const res = await window.electronAPI.getResourcePacks(instance.name);
+                    if (res?.success && Array.isArray(res.packs)) setResourcePacks(res.packs);
+                } else {
+                    const res = await window.electronAPI.getShaders(instance.name);
+                    if (res?.success && Array.isArray(res.shaders)) setShaders(res.shaders);
+                }
+            } catch (e) {
+                console.error('[InstanceDetails] Auto refresh failed:', e);
+            } finally {
+                inFlight = false;
+            }
+        };
+
+        const refreshIfVisible = () => {
+            if (!document.hidden) {
+                refreshVisibleContent();
+            }
+        };
+
+        const intervalId = window.setInterval(refreshIfVisible, 2500);
+        window.addEventListener('focus', refreshIfVisible);
+        document.addEventListener('visibilitychange', refreshIfVisible);
+
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', refreshIfVisible);
+            document.removeEventListener('visibilitychange', refreshIfVisible);
+        };
+    }, [activeTab, contentView, instance.name]);
+    useEffect(() => {
         if (autoScroll && logContainerRef.current) {
             logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
         }
@@ -599,7 +642,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
     const handleDragOver = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (contentView === 'mods' || contentView === 'resourcepacks') {
+        if (contentView === 'mods' || contentView === 'resourcepacks' || contentView === 'shaders') {
             setIsDragging(true);
         }
     };
@@ -615,7 +658,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         e.stopPropagation();
         setIsDragging(false);
 
-        if (contentView !== 'mods' && contentView !== 'resourcepacks') return;
+        if (contentView !== 'mods' && contentView !== 'resourcepacks' && contentView !== 'shaders') return;
 
         const files: any[] = Array.from(e.dataTransfer.files);
 
@@ -627,15 +670,22 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
             }
 
             let addedCount = 0;
+            let missingPathCount = 0;
             for (const file of validFiles) {
-                if (file.path) {
-                    const res = await window.electronAPI.installLocalMod(instance.name, file.path);
-                    if (res.success) addedCount++;
+                const filePath = window.electronAPI.resolveDroppedFilePath(file);
+                if (!filePath) {
+                    missingPathCount++;
+                    continue;
                 }
+
+                const res = await window.electronAPI.installLocalMod(instance.name, filePath);
+                if (res.success) addedCount++;
             }
             if (addedCount > 0) {
                 addNotification(`Successfully added ${addedCount} mod(s)`, 'success');
                 loadMods();
+            } else if (missingPathCount > 0) {
+                addNotification('Could not read dropped file path(s). Try dropping from Windows Explorer or use Add Content.', 'error');
             }
         } else {
             const validFiles = files.filter(f => f.name.toLowerCase().endsWith('.zip') || f.name.toLowerCase().endsWith('.rar'));
@@ -645,15 +695,28 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
             }
 
             let addedCount = 0;
+            let missingPathCount = 0;
+            const projectType = contentView === 'shaders' ? 'shader' : 'resourcepack';
             for (const file of validFiles) {
-                if (file.path) {
-                    const res = await window.electronAPI.installLocalMod(instance.name, file.path, 'resourcepack');
-                    if (res.success) addedCount++;
+                const filePath = window.electronAPI.resolveDroppedFilePath(file);
+                if (!filePath) {
+                    missingPathCount++;
+                    continue;
                 }
+
+                const res = await window.electronAPI.installLocalMod(instance.name, filePath, projectType);
+                if (res.success) addedCount++;
             }
             if (addedCount > 0) {
-                addNotification(`Successfully added ${addedCount} resource pack(s)`, 'success');
-                loadResourcePacks();
+                if (contentView === 'shaders') {
+                    addNotification(`Successfully added ${addedCount} shader pack(s)`, 'success');
+                    loadShaders();
+                } else {
+                    addNotification(`Successfully added ${addedCount} resource pack(s)`, 'success');
+                    loadResourcePacks();
+                }
+            } else if (missingPathCount > 0) {
+                addNotification('Could not read dropped file path(s). Try dropping from Windows Explorer or use Add Content.', 'error');
             }
         }
     };
@@ -1263,7 +1326,23 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                                 )}
                             </div>
                         ) : contentView === 'resourcepacks' ? (
-                            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar transition-all rounded-xl relative">
+                            <div
+                                className={`flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar transition-all rounded-xl relative ${isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed ring-offset-4 ring-offset-background' : ''}`}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                            >
+                                {isDragging && (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-primary/10 backdrop-blur-[2px] z-10 rounded-xl pointer-events-none">
+                                        <div className="bg-primary text-black p-4 rounded-full shadow-md mb-2 animate-bounce">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                            </svg>
+                                        </div>
+                                        <div className="text-primary font-bold text-lg">{t('instance_details.content.drop_packs')}</div>
+                                        <div className="text-[10px] text-primary/60 uppercase tracking-widest mt-1">{t('instance_details.content.accepting_archives')}</div>
+                                    </div>
+                                )}
                                 {loadingResourcePacks ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
@@ -1324,7 +1403,23 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                                 )}
                             </div>
                         ) : contentView === 'shaders' ? (
-                            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar transition-all rounded-xl relative">
+                            <div
+                                className={`flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar transition-all rounded-xl relative ${isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed ring-offset-4 ring-offset-background' : ''}`}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                            >
+                                {isDragging && (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-primary/10 backdrop-blur-[2px] z-10 rounded-xl pointer-events-none">
+                                        <div className="bg-primary text-black p-4 rounded-full shadow-md mb-2 animate-bounce">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                            </svg>
+                                        </div>
+                                        <div className="text-primary font-bold text-lg">{t('instance_details.content.drop_shaders')}</div>
+                                        <div className="text-[10px] text-primary/60 uppercase tracking-widest mt-1">{t('instance_details.content.accepting_archives')}</div>
+                                    </div>
+                                )}
                                 {loadingShaders ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>

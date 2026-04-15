@@ -232,7 +232,10 @@
             "no_shaders": "Niciun shader găsit",
             "check_folder_shaders": "Verifică folderul `shaderpacks` din directorul instanței",
             "browse_shaders": "Răsfoiește shadere",
-            "preview": "Previzualizare"
+            "preview": "Previzualizare",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Introdu ID-ul Modrinth sau caută numele mod-ului...",

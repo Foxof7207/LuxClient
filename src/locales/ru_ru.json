@@ -232,7 +232,10 @@
             "no_shaders": "Шейдеры не найдены",
             "check_folder_shaders": "Проверьте папку `shaderpacks` в директории сборки",
             "browse_shaders": "Поиск шейдеров",
-            "preview": "Превью"
+            "preview": "Превью",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Введите ID Modrinth или название мода...",

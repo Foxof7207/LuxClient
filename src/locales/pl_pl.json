@@ -232,7 +232,10 @@
             "no_shaders": "Nie znaleziono shaderów",
             "check_folder_shaders": "Sprawdź folder `shaderpacks` w katalogu instancji",
             "browse_shaders": "Przeglądaj shadery",
-            "preview": "Podgląd"
+            "preview": "Podgląd",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Wprowadź ID Modrinth lub wyszukaj nazwę moda...",

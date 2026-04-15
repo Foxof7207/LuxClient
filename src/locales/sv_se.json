@@ -232,7 +232,10 @@
             "no_shaders": "Inga shaders hittades",
             "check_folder_shaders": "Kontrollera mappen `shaderpacks` i instansens katalog",
             "browse_shaders": "Bläddra bland shaders",
-            "preview": "Förhandsgranska"
+            "preview": "Förhandsgranska",
+            "drop_packs": "Drag and drop resource packs here to install",
+            "drop_shaders": "Drag and drop shader packs here to install",
+            "accepting_archives": "Accepting .zip and .rar files"
         },
         "search": {
             "placeholder": "Ange Modrinth ID eller sök på modnamn...",

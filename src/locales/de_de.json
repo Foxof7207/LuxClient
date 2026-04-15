@@ -247,7 +247,10 @@
             "no_shaders": "Keine Shader gefunden",
             "check_folder_shaders": "Prüfe den `shaderpacks`-Ordner im Instanzordner",
             "browse_shaders": "Shader durchsuchen",
-            "preview": "Vorschau"
+            "preview": "Vorschau",
+            "drop_packs": "Resource Packs hierher ziehen und ablegen, um sie zu installieren",
+            "drop_shaders": "Shader hierher ziehen und ablegen, um sie zu installieren",
+            "accepting_archives": ".zip- und .rar-Dateien werden akzeptiert"
         },
         "search": {
             "placeholder": "Modrinth-ID eingeben oder nach Mod-Namen suchen...",
