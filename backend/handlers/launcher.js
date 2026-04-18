@@ -1437,6 +1437,68 @@ Add-Type -TypeDefinition $code -Language CSharp
         return [];
     };
 
+    const appendUniqueCustomArgs = (opts, argsToAdd) => {
+        if (!Array.isArray(argsToAdd) || argsToAdd.length === 0) return;
+
+        if (!Array.isArray(opts.customArgs)) {
+            opts.customArgs = Array.isArray(opts.customArgs) ? opts.customArgs : [];
+        }
+
+        const existing = new Set(opts.customArgs.map((value) => String(value)));
+        for (const arg of argsToAdd) {
+            const normalized = String(arg);
+            if (!existing.has(normalized)) {
+                opts.customArgs.push(normalized);
+                existing.add(normalized);
+            }
+        }
+    };
+
+    const resolveLatestLibraryJar = async (libraryRoot, groupParts, artifact) => {
+        const artifactRoot = path.join(libraryRoot, ...groupParts, artifact);
+        if (!await fs.pathExists(artifactRoot)) return null;
+
+        let versionEntries = [];
+        try {
+            versionEntries = await fs.readdir(artifactRoot, { withFileTypes: true });
+        } catch (_) {
+            return null;
+        }
+
+        const versions = versionEntries
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+
+        for (const version of versions) {
+            const versionDir = path.join(artifactRoot, version);
+            const expected = path.join(versionDir, `${artifact}-${version}.jar`);
+            if (await fs.pathExists(expected)) {
+                return expected;
+            }
+
+            try {
+                const files = await fs.readdir(versionDir);
+                const fallbackJar = files.find((file) => file.toLowerCase().endsWith('.jar'));
+                if (fallbackJar) {
+                    return path.join(versionDir, fallbackJar);
+                }
+            } catch (_) {
+            }
+        }
+
+        return null;
+    };
+
+    const resolveLatestLibraryJars = async (libraryRoot, groupParts, artifacts) => {
+        const resolved = [];
+        for (const artifact of artifacts) {
+            const jar = await resolveLatestLibraryJar(libraryRoot, groupParts, artifact);
+            if (jar) resolved.push(jar);
+        }
+        return resolved;
+    };
+
     ipcMain.handle('launcher:abort-launch', async (_, instanceName) => {
         if (activeLaunches.has(instanceName)) {
             activeLaunches.get(instanceName).cancelled = true;
@@ -1854,7 +1916,80 @@ Add-Type -TypeDefinition $code -Language CSharp
                 root: opts.root
             });
 
-            if (config.loader && config.loader.toLowerCase() === 'neoforge') {
+            const normalizedLoader = String(config.loader || '').toLowerCase();
+
+            if (normalizedLoader === 'forge') {
+                // Keep Forge bootstrap arguments aligned with official Forge version JSON to avoid JPMS conflicts.
+                const bootstrapJar = await resolveLatestLibraryJar(librariesDir, ['cpw', 'mods'], 'bootstraplauncher');
+                const secureJarPath = await resolveLatestLibraryJar(librariesDir, ['cpw', 'mods'], 'securejarhandler');
+                const asmCommonsJar = await resolveLatestLibraryJar(librariesDir, ['org', 'ow2', 'asm'], 'asm-commons');
+                const asmUtilJar = await resolveLatestLibraryJar(librariesDir, ['org', 'ow2', 'asm'], 'asm-util');
+                const asmAnalysisJar = await resolveLatestLibraryJar(librariesDir, ['org', 'ow2', 'asm'], 'asm-analysis');
+                const asmTreeJar = await resolveLatestLibraryJar(librariesDir, ['org', 'ow2', 'asm'], 'asm-tree');
+                const asmJar = await resolveLatestLibraryJar(librariesDir, ['org', 'ow2', 'asm'], 'asm');
+                const jarJarFsJar = await resolveLatestLibraryJar(librariesDir, ['net', 'minecraftforge'], 'JarJarFileSystems');
+                const jnaJar = await resolveLatestLibraryJar(librariesDir, ['net', 'java', 'dev', 'jna'], 'jna');
+                const jnaPlatformJar = await resolveLatestLibraryJar(librariesDir, ['net', 'java', 'dev', 'jna'], 'jna-platform');
+
+                const modulePathEntries = [
+                    bootstrapJar,
+                    secureJarPath,
+                    asmCommonsJar,
+                    asmUtilJar,
+                    asmAnalysisJar,
+                    asmTreeJar,
+                    asmJar,
+                    jarJarFsJar
+                ].filter(Boolean);
+
+                const versionJarName = `${config.versionId || config.version}.jar`;
+                const jnaJarName = jnaJar ? path.basename(jnaJar) : 'jna.jar';
+                const jnaPlatformJarName = jnaPlatformJar ? path.basename(jnaPlatformJar) : 'jna-platform.jar';
+
+                const forgeArgs = [
+                    '-Djava.net.preferIPv6Addresses=system',
+                    `-DignoreList=bootstraplauncher,securejarhandler,asm-commons,asm-util,asm-analysis,asm-tree,asm,JarJarFileSystems,client-extra,fmlcore,javafmllanguage,lowcodelanguage,mclanguage,forge-,${versionJarName},${config.version}`,
+                    `-DmergeModules=${jnaJarName},${jnaPlatformJarName}`,
+                    `-DlibraryDirectory=${librariesDir}`,
+                    '-p',
+                    modulePathEntries.join(path.delimiter),
+                    '--add-modules',
+                    'ALL-MODULE-PATH',
+                    '--add-opens=java.base/java.util.jar=cpw.mods.securejarhandler',
+                    '--add-opens=java.base/java.lang.invoke=cpw.mods.securejarhandler',
+                    '--add-exports=java.base/sun.security.util=cpw.mods.securejarhandler',
+                    '--add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming'
+                ];
+
+                if (modulePathEntries.length === 0) {
+                    activeLaunches.delete(instanceName);
+                    return {
+                        success: false,
+                        error: `Forge is not fully installed for this instance (bootstrap libraries missing). Please reinstall the instance.`
+                    };
+                }
+
+                // Also verify the version JSON has the correct Forge main class.
+                // If it contains the vanilla main class, Forge installation was incomplete.
+                const forgeVersionJsonPath = path.join(versionDir, `${config.versionId}.json`);
+                if (await fs.pathExists(forgeVersionJsonPath)) {
+                    try {
+                        const forgeVersionJson = await fs.readJson(forgeVersionJsonPath);
+                        if (forgeVersionJson.mainClass && !forgeVersionJson.mainClass.includes('bootstraplauncher') && !forgeVersionJson.mainClass.includes('BootstrapLauncher')) {
+                            activeLaunches.delete(instanceName);
+                            return {
+                                success: false,
+                                error: `Forge is not fully installed for this instance (version profile is vanilla). Please reinstall the instance.`
+                            };
+                        }
+                    } catch (_) { /* ignore JSON parse errors */ }
+                }
+
+                appendUniqueCustomArgs(opts, forgeArgs);
+                console.log("Added Forge JVM arguments");
+            }
+
+            if (normalizedLoader === 'neoforge') {
                 const neoForgeArgs = [
                     `-DlibraryDirectory=${librariesDir}`,
                     "--add-modules=ALL-SYSTEM",
@@ -1870,15 +2005,7 @@ Add-Type -TypeDefinition $code -Language CSharp
                     "--add-opens=java.logging/java.util.logging=ALL-UNNAMED"
                 ];
 
-                if (opts.customArgs) {
-                    if (Array.isArray(opts.customArgs)) {
-                        opts.customArgs.push(...neoForgeArgs);
-                    } else {
-                        opts.customArgs = [...neoForgeArgs];
-                    }
-                } else {
-                    opts.customArgs = neoForgeArgs;
-                }
+                appendUniqueCustomArgs(opts, neoForgeArgs);
                 console.log("Added NeoForge JVM arguments");
             }
 
