@@ -343,11 +343,11 @@ const isLikelyJarDownloadUrl = (url) => {
     if (normalized.endsWith('.jar')) return true;
     if (normalized.includes('/download')) return true;
     if (normalized.includes('api.spiget.org/v2/resources')) return true;
-    if (normalized.includes('hangarcdn.papermc.io')) return true;
 
     try {
         const parsed = new URL(normalized);
         if (parsed.hostname === 'cdn.modrinth.com') return true;
+        if (parsed.hostname === 'hangarcdn.papermc.io') return true;
     } catch (_) {
         // Ignore invalid URLs and fall through.
     }
