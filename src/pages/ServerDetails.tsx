@@ -69,11 +69,12 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
     const [loadingVersions, setLoadingVersions] = useState(new Set());
     const [isUninstallingContent, setIsUninstallingContent] = useState('');
     const [modsViewMode, setModsViewMode] = useState('installed');
+    const [isContentDropActive, setIsContentDropActive] = useState(false);
+    const [isContentDropUploading, setIsContentDropUploading] = useState(false);
 
     const consoleRef = useRef(null);
     const commandInputRef = useRef(null);
     const statsInterval = useRef(null);
-    const chartsCanvasRef = useRef(null);
 
     const lowerSoftwareForConfig = String(server.software || 'vanilla').toLowerCase();
     const isModConfigServer = ['forge', 'neoforge', 'quilt', 'fabric', 'magma', 'mohist', 'arclight', 'ketting', 'spongeforge', 'catserver']
@@ -565,15 +566,17 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
             }
         });
 
-        const removeStatsListener = window.electronAPI.onServerStats?.(({ serverName, cpu, memory, uptime, players }) => {
+        const removeStatsListener = window.electronAPI.onServerStats?.(({ serverName, cpu, memory, uptime, players, playerCount }) => {
             if (serverName === server.name) {
                 setServerStats(prev => {
-                    const now = Date.now();
                     const timestamp = new Date().toLocaleTimeString();
+                    const resolvedPlayerCount = Number.isFinite(playerCount)
+                        ? playerCount
+                        : (players?.length || 0);
                     const newHistory = {
                         cpu: [...prev.history.cpu, cpu || 0].slice(-60),
                         memory: [...prev.history.memory, memory || 0].slice(-60),
-                        playerCount: [...prev.history.playerCount, (players?.length || 0)].slice(-60),
+                        playerCount: [...prev.history.playerCount, resolvedPlayerCount].slice(-60),
                         timestamps: [...prev.history.timestamps, timestamp].slice(-60)
                     };
 
@@ -634,11 +637,6 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
             consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
         }
     }, [consoleLog, activeTab]);
-    useEffect(() => {
-        if (activeTab === 'charts' && chartsCanvasRef.current) {
-            drawCharts();
-        }
-    }, [activeTab, serverStats.history]);
     useEffect(() => {
         if (consoleLog.length > 0) {
             const recentLogs = consoleLog.slice(-100);
@@ -711,94 +709,60 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
             if (!window.electronAPI.getServerStats) return;
 
             const stats = await window.electronAPI.getServerStats(server.name);
+            const timestamp = new Date().toLocaleTimeString();
+            const resolvedPlayerCount = Number.isFinite(stats?.playerCount)
+                ? stats.playerCount
+                : (stats?.players?.length || 0);
             setServerStats(prev => ({
                 ...prev,
                 ...stats,
                 cpu: stats?.cpu || 0,
                 memory: stats?.memory || 0,
-                players: stats?.players || []
+                players: stats?.players || [],
+                uptime: stats?.uptime || 0,
+                history: {
+                    cpu: [...prev.history.cpu, stats?.cpu || 0].slice(-60),
+                    memory: [...prev.history.memory, stats?.memory || 0].slice(-60),
+                    playerCount: [...prev.history.playerCount, resolvedPlayerCount].slice(-60),
+                    timestamps: [...prev.history.timestamps, timestamp].slice(-60)
+                }
             }));
         } catch (error) {
             console.error('Failed to load server stats:', error);
         }
     };
 
-    const drawCharts = () => {
-        const canvas = chartsCanvasRef.current;
-        if (!canvas) return;
+    const buildSparklinePoints = (values, maxValue) => {
+        const width = 100;
+        const height = 44;
 
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        ctx.clearRect(0, 0, width, height);
+        if (!Array.isArray(values) || values.length === 0) {
+            return '';
+        }
 
-        const { cpu, memory, playerCount, timestamps } = serverStats.history;
-
-        if (cpu.length < 2) return;
-        const drawChart = (data, color, yOffset, chartHeight, rawMaxValue) => {
-            const maxValue = Math.max(rawMaxValue, 1);
-            const points = data.map((value, index) => ({
-                x: 10 + (index / Math.max(data.length - 1, 1)) * (width - 20),
-                y: yOffset + chartHeight - (Math.min(Math.max(value, 0), maxValue) / maxValue) * chartHeight
-            }));
-
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-
-            for (let i = 1; i < points.length - 1; i++) {
-                const xc = (points[i].x + points[i + 1].x) / 2;
-                const yc = (points[i].y + points[i + 1].y) / 2;
-                ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
-            }
-            if (points.length > 1) {
-                ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-            }
-
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            ctx.lineTo(points[points.length - 1].x, yOffset + chartHeight);
-            ctx.lineTo(points[0].x, yOffset + chartHeight);
-            ctx.closePath();
-
-            ctx.fillStyle = color.replace('rgb', 'rgba').replace(')', ', 0.1)');
-            ctx.fill();
-
-            points.forEach((point, i) => {
-                if (i % 5 === 0 || i === points.length - 1) {
-                    ctx.beginPath();
-                    ctx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
-                    ctx.fillStyle = color;
-                    ctx.fill();
-                    ctx.strokeStyle = 'white';
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
-                }
-            });
-            ctx.fillStyle = '#9CA3AF';
-            ctx.font = '10px Inter, sans-serif';
-            ctx.textAlign = 'center';
-
-            points.forEach((point, i) => {
-                if (i % 10 === 0 || i === points.length - 1) {
-                    ctx.fillText(timestamps[i] || '', point.x, yOffset + chartHeight + 15);
-                }
-            });
-        };
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '12px Inter, sans-serif';
-        ctx.fillText('CPU Usage (%)', 10, 25);
-        drawChart(cpu, 'rgb(59, 130, 246)', 30, 120, 100);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '12px Inter, sans-serif';
-        ctx.fillText('Memory Usage (MB)', 10, 185);
-        drawChart(memory, 'rgb(16, 185, 129)', 170, 120, Math.max(...memory, 1024));
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '12px Inter, sans-serif';
-        ctx.fillText('Active Players', 10, 340);
-        drawChart(playerCount, 'rgb(245, 158, 11)', 310, 120, Math.max(server.maxPlayers || 20, Math.max(...playerCount)));
+        const safeMax = Math.max(maxValue || 1, 1);
+        return values.map((value, index) => {
+            const x = values.length === 1
+                ? width
+                : (index / (values.length - 1)) * width;
+            const y = height - (Math.min(Math.max(value, 0), safeMax) / safeMax) * height;
+            return `${x},${y}`;
+        }).join(' ');
     };
+
+    const buildSparklineArea = (polylinePoints) => {
+        if (!polylinePoints) return '';
+        const points = polylinePoints.split(' ');
+        if (points.length === 0) return '';
+        return `0,44 ${polylinePoints} 100,44`;
+    };
+
+    const averageOf = (values) => {
+        if (!Array.isArray(values) || values.length === 0) return 0;
+        return values.reduce((sum, value) => sum + value, 0) / values.length;
+    };
+
+    const chartIdBase = String(server.name || 'server').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'server';
 
     const handleSendCommand = async (e) => {
         e.preventDefault();
@@ -1012,10 +976,7 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
     };
 
     const searchMods = async (query) => {
-        if (!query.trim()) {
-            setModSearchResults([]);
-            return;
-        }
+        const normalizedQuery = String(query || '').trim();
 
         setIsSearchingMods(true);
         try {
@@ -1033,7 +994,7 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
 
             facets.push(['server_side:required', 'server_side:optional']);
 
-            const result = await window.electronAPI.modrinthSearch(query, facets, {
+            const result = await window.electronAPI.modrinthSearch(normalizedQuery, facets, {
                 projectType: getServerContentType(),
                 limit: 10,
                 includeCurseforge: !isPlugin,
@@ -1205,6 +1166,62 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
         } finally {
             setIsUninstallingContent('');
         }
+    };
+
+    const uploadContentFiles = async (fileList) => {
+        if (!fileList || fileList.length === 0 || isContentDropUploading) return;
+
+        const targetFolder = getServerContentType() === 'plugin' ? 'plugins' : 'mods';
+        setIsContentDropUploading(true);
+
+        try {
+            let uploadedCount = 0;
+            for (const file of fileList) {
+                const fileName = String(file?.name || '').trim();
+                if (!fileName.toLowerCase().endsWith('.jar')) {
+                    continue;
+                }
+
+                const localFilePath = window.electronAPI.resolveDroppedFilePath
+                    ? window.electronAPI.resolveDroppedFilePath(file)
+                    : '';
+
+                if (!localFilePath) {
+                    addNotification(`Could not resolve local file path for ${fileName}`, 'error');
+                    continue;
+                }
+
+                const targetPath = `${targetFolder}/${fileName}`;
+                const uploadResult = await window.electronAPI.uploadServerFile(server.name, targetPath, localFilePath);
+
+                if (!uploadResult?.success) {
+                    addNotification(uploadResult?.error || `Failed to upload ${fileName}`, 'error');
+                    continue;
+                }
+
+                uploadedCount += 1;
+            }
+
+            if (uploadedCount > 0) {
+                addNotification(`${uploadedCount} ${getContentLabelPlural()} uploaded`, 'success');
+                await loadInstalledContent();
+            }
+        } catch (error) {
+            console.error('Failed to upload dropped content:', error);
+            addNotification(error.message || `Failed to upload ${getContentLabelPlural()}`, 'error');
+        } finally {
+            setIsContentDropUploading(false);
+            setIsContentDropActive(false);
+        }
+    };
+
+    const handleContentDrop = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsContentDropActive(false);
+
+        const droppedFiles = Array.from(event.dataTransfer?.files || []);
+        await uploadContentFiles(droppedFiles);
     };
 
     useEffect(() => {
@@ -1934,42 +1951,110 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
                     </div>
                 )}
 
-                {activeTab === 'charts' && (
+                {activeTab === 'charts' && (() => {
+                    const cpuHistory = serverStats.history.cpu;
+                    const memoryHistory = serverStats.history.memory;
+                    const playersHistory = serverStats.history.playerCount;
+                    const maxPlayers = Math.max(server.maxPlayers || 20, ...playersHistory, 1);
+                    const memoryMax = Math.max(1024, ...memoryHistory, 1);
 
-                    <div className="flex flex-col h-full">
-                        <h2 className="text-lg font-bold text-foreground mb-4">Server Performance</h2>
+                    const cpuPoints = buildSparklinePoints(cpuHistory, 100);
+                    const memoryPoints = buildSparklinePoints(memoryHistory, memoryMax);
+                    const playersPoints = buildSparklinePoints(playersHistory, maxPlayers);
 
-                        <div className="bg-card/40 rounded-xl p-4">
-                            <canvas
-                                ref={chartsCanvasRef}
-                                width={800}
-                                height={500}
-                                className="w-full h-auto"
-                            />
+                    return (
+                        <div className="flex flex-col h-full gap-5">
+                            <div className="flex items-end justify-between gap-3">
+                                <div>
+                                    <h2 className="text-xl font-bold text-foreground">Performance Dashboard</h2>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Last 60 samples - live telemetry</p>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Server Status</div>
+                                    <div className={`text-sm font-bold ${currentStatus === 'running' ? 'text-green-400' : currentStatus === 'starting' ? 'text-amber-300' : 'text-red-400'}`}>
+                                        {String(currentStatus || 'unknown').toUpperCase()}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                                    <div className="text-[11px] uppercase tracking-wider text-blue-200">CPU now</div>
+                                    <div className="text-2xl font-extrabold text-blue-100 mt-1">{Math.round(serverStats.cpu || 0)}%</div>
+                                    <div className="text-xs text-blue-200/80 mt-1">avg {Math.round(averageOf(cpuHistory))}%</div>
+                                </div>
+                                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                    <div className="text-[11px] uppercase tracking-wider text-emerald-200">RAM now</div>
+                                    <div className="text-2xl font-extrabold text-emerald-100 mt-1">{Math.round(serverStats.memory || 0)} MB</div>
+                                    <div className="text-xs text-emerald-200/80 mt-1">avg {Math.round(averageOf(memoryHistory))} MB</div>
+                                </div>
+                                <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                    <div className="text-[11px] uppercase tracking-wider text-amber-200">Players now</div>
+                                    <div className="text-2xl font-extrabold text-amber-100 mt-1">{serverStats.players?.length || 0}</div>
+                                    <div className="text-xs text-amber-200/80 mt-1">peak {Math.max(...playersHistory, 0)}</div>
+                                </div>
+                                <div className="rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/10 p-4">
+                                    <div className="text-[11px] uppercase tracking-wider text-fuchsia-200">Uptime</div>
+                                    <div className="text-2xl font-extrabold text-fuchsia-100 mt-1">{Math.floor((serverStats.uptime || 0) / 60)}m</div>
+                                    <div className="text-xs text-fuchsia-200/80 mt-1">{serverStats.uptime || 0}s total</div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                                <div className="rounded-xl border border-border bg-card/50 p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-semibold text-blue-200">CPU Usage</h3>
+                                        <span className="text-xs text-muted-foreground">max 100%</span>
+                                    </div>
+                                    <svg viewBox="0 0 100 44" className="w-full h-28">
+                                        <defs>
+                                            <linearGradient id={`${chartIdBase}-cpu`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.45" />
+                                                <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.04" />
+                                            </linearGradient>
+                                        </defs>
+                                        <polygon points={buildSparklineArea(cpuPoints)} fill={`url(#${chartIdBase}-cpu)`} />
+                                        <polyline points={cpuPoints} fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </div>
+
+                                <div className="rounded-xl border border-border bg-card/50 p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-semibold text-emerald-200">Memory Usage</h3>
+                                        <span className="text-xs text-muted-foreground">max {Math.round(memoryMax)} MB</span>
+                                    </div>
+                                    <svg viewBox="0 0 100 44" className="w-full h-28">
+                                        <defs>
+                                            <linearGradient id={`${chartIdBase}-memory`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#34d399" stopOpacity="0.45" />
+                                                <stop offset="100%" stopColor="#34d399" stopOpacity="0.04" />
+                                            </linearGradient>
+                                        </defs>
+                                        <polygon points={buildSparklineArea(memoryPoints)} fill={`url(#${chartIdBase}-memory)`} />
+                                        <polyline points={memoryPoints} fill="none" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </div>
+
+                                <div className="rounded-xl border border-border bg-card/50 p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-semibold text-amber-200">Player Count</h3>
+                                        <span className="text-xs text-muted-foreground">max {maxPlayers}</span>
+                                    </div>
+                                    <svg viewBox="0 0 100 44" className="w-full h-28">
+                                        <defs>
+                                            <linearGradient id={`${chartIdBase}-players`} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.45" />
+                                                <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.04" />
+                                            </linearGradient>
+                                        </defs>
+                                        <polygon points={buildSparklineArea(playersPoints)} fill={`url(#${chartIdBase}-players)`} />
+                                        <polyline points={playersPoints} fill="none" stroke="#fbbf24" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </div>
+                            </div>
                         </div>
-
-                        <div className="grid grid-cols-3 gap-4 mt-4">
-                            <div className="bg-card/40 rounded-xl p-3 text-center">
-                                <div className="text-sm text-muted-foreground">Avg CPU</div>
-                                <div className="text-xl font-bold text-foreground">
-                                    {Math.round(serverStats.history.cpu.reduce((a, b) => a + b, 0) / serverStats.history.cpu.length || 0)}%
-                                </div>
-                            </div>
-                            <div className="bg-card/40 rounded-xl p-3 text-center">
-                                <div className="text-sm text-muted-foreground">Avg Memory</div>
-                                <div className="text-xl font-bold text-foreground">
-                                    {Math.round(serverStats.history.memory.reduce((a, b) => a + b, 0) / serverStats.history.memory.length || 0)} MB
-                                </div>
-                            </div>
-                            <div className="bg-card/40 rounded-xl p-3 text-center">
-                                <div className="text-sm text-muted-foreground">Peak Players</div>
-                                <div className="text-xl font-bold text-foreground">
-                                    {Math.max(...serverStats.history.playerCount, 0)}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {activeTab === 'players' && (
 
@@ -2399,6 +2484,47 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
                                             </div>
                                         )}
                                     </div>
+
+                                    <div
+                                        onDragOver={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            setIsContentDropActive(true);
+                                        }}
+                                        onDragLeave={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            const relatedTarget = event.relatedTarget as Node | null;
+                                            if (relatedTarget && event.currentTarget.contains(relatedTarget)) return;
+                                            setIsContentDropActive(false);
+                                        }}
+                                        onDrop={handleContentDrop}
+                                        className={`mt-3 rounded-lg border-2 border-dashed px-4 py-4 text-sm transition-colors ${isContentDropActive ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="font-semibold text-foreground">Drag and drop {getContentLabelPlural()} here</div>
+                                                <div className="text-xs mt-1">Files will be uploaded to /{getServerContentType() === 'plugin' ? 'plugins' : 'mods'}</div>
+                                            </div>
+                                            <label className="px-3 py-2 rounded-lg bg-muted hover:bg-accent text-foreground cursor-pointer text-xs font-bold transition-colors">
+                                                Select .jar files
+                                                <input
+                                                    type="file"
+                                                    multiple
+                                                    accept=".jar"
+                                                    className="hidden"
+                                                    onChange={async (event) => {
+                                                        const selected = Array.from(event.target.files || []);
+                                                        await uploadContentFiles(selected);
+                                                        event.target.value = '';
+                                                    }}
+                                                />
+                                            </label>
+                                        </div>
+                                        {isContentDropUploading && (
+                                            <div className="text-xs mt-2 text-primary">Uploading...</div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -2416,7 +2542,7 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
                                         />
                                         <button
                                             onClick={() => searchMods(modSearch)}
-                                            disabled={isSearchingMods || !modSearch.trim()}
+                                            disabled={isSearchingMods}
                                             className="px-6 py-2 bg-primary/20 text-primary rounded-lg font-bold hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             {isSearchingMods ? 'Searching...' : 'Search'}
@@ -2502,7 +2628,7 @@ function ServerDetails({ server, onBack, runningInstances, onServerUpdate, isGue
 
                                     {!modSearch && modSearchResults.length === 0 && (
                                         <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-                                            <p>Search for {getContentLabelPlural()} to install</p>
+                                            <p>No suggestions available right now. Click Search to load recommendations.</p>
                                         </div>
                                     )}
                                 </>

@@ -1606,9 +1606,11 @@ Add-Type -TypeDefinition $code -Language CSharp
             const backupConfig = store.get('settings') || {};
             if (supportsBackups && backupConfig.backupSettings?.enabled && backupConfig.backupSettings?.onLaunch) {
                 console.log(`[Launcher] Triggering on-launch backup for ${instanceName}`);
-                await backupManager.createBackup(instanceName).catch(err => {
-                    console.error('[Launcher] On-launch backup failed:', err);
-                });
+                setTimeout(() => {
+                    backupManager.createBackup(instanceName).catch(err => {
+                        console.error('[Launcher] On-launch backup failed:', err);
+                    });
+                }, 15000);
             }
 
             if (supportsBackups && backupConfig.backupSettings?.enabled && backupConfig.backupSettings?.interval > 0) {
@@ -2045,9 +2047,20 @@ Add-Type -TypeDefinition $code -Language CSharp
                     if (forbiddenChars.test(hook)) {
                         console.error('[Launcher] Blocked potentially malicious pre-launch hook:', hook);
                     } else {
-                        const { execSync } = require('child_process');
                         console.log(`[Launcher] Executing pre-launch hook: ${hook}`);
-                        execSync(hook, { cwd: instanceDir, stdio: 'inherit' });
+                        const { stdout, stderr } = await execAsync(hook, {
+                            cwd: instanceDir,
+                            windowsHide: true,
+                            timeout: 45000,
+                            maxBuffer: 1024 * 1024
+                        });
+
+                        if (stdout) {
+                            mainWindow.webContents.send('launch:log', `[Hook] ${stdout}`);
+                        }
+                        if (stderr) {
+                            mainWindow.webContents.send('launch:log', `[Hook:stderr] ${stderr}`);
+                        }
                     }
                 } catch (e) {
                     console.error('Pre-launch hook failed:', e.message);

@@ -12,7 +12,7 @@ import { fetchVersionsFor, fetchDetailsFor } from '../services/serverJars';
 const DEFAULT_ICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='4' width='20' height='16' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='8' y1='9' x2='16' y2='9'%3E%3C/line%3E%3Cline x1='8' y1='13' x2='16' y2='13'%3E%3C/line%3E%3Cline x1='8' y1='17' x2='12' y2='17'%3E%3C/line%3E%3C/svg%3E";
 const formatUptime = (seconds, t) => {
     if (!seconds || seconds <= 0) return t('server.offline');
-    const days = Math.floor(seconds / 84600);
+    const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
 
@@ -755,7 +755,7 @@ function ServerDashboard({ onServerClick, runningInstances = {}, isGuest }) {
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {contextMenu.server.status === 'running' ? (
+                    {(runningInstances[contextMenu.server.name] || contextMenu.server.status) === 'running' ? (
                         <>
                             <button onClick={() => handleContextAction('stop')} className="w-full px-4 py-2 text-left hover:bg-accent flex items-center gap-3 text-sm text-red-400">
                                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>

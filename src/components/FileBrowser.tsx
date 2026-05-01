@@ -160,7 +160,15 @@ const FileBrowser = ({ serverName }) => {
                 const targetPath = currentPath ? `${currentPath}/${relativePath}` : relativePath;
                 
                 try {
-                    const res = await window.electronAPI.uploadServerFile(serverName, targetPath, file.path || file);
+                    const resolvedPath = window.electronAPI.resolveDroppedFilePath
+                        ? window.electronAPI.resolveDroppedFilePath(file)
+                        : file.path;
+
+                    if (!resolvedPath) {
+                        throw new Error(`Could not resolve local path for ${file.name}`);
+                    }
+
+                    const res = await window.electronAPI.uploadServerFile(serverName, targetPath, resolvedPath);
                     if (res.success) {
                         uploaded.push({ name: file.name, path: relativePath, status: 'success' });
                     } else {

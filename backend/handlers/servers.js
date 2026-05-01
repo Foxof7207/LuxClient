@@ -11,8 +11,24 @@ const serverProcesses = new Map();
 const serverStatsIntervals = new Map();
 
 const serverStartTimes = new Map();
+const serverRestartRequests = new Map();
 
 const serverConsoleBuffers = new Map();
+
+function markServerRestartRequested(serverName, source = 'unknown') {
+    serverRestartRequests.set(serverName, {
+        requestedAt: Date.now(),
+        source
+    });
+}
+
+function consumeServerRestartRequested(serverName, maxAgeMs = 120000) {
+    const pending = serverRestartRequests.get(serverName);
+    if (!pending) return false;
+
+    serverRestartRequests.delete(serverName);
+    return (Date.now() - pending.requestedAt) <= maxAgeMs;
+}
 
 function stripAnsi(text) {
     if (!text) return '';
@@ -22,6 +38,46 @@ function stripAnsi(text) {
 
     clean = clean.replace(/[┌┐└┘─│┤├┬┴┼═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬■●]/g, ' ');
     return clean.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+}
+
+function extractPlayersFromConsoleBuffer(consoleBuffer = []) {
+    let players = [];
+    let playerCount = 0;
+
+    for (let i = consoleBuffer.length - 1; i >= 0; i--) {
+        const line = stripAnsi(consoleBuffer[i]);
+
+        const detailedListMatch = line.match(/There are (\d+) of a max of \d+ players online(?::\s*(.*))?/i);
+        if (detailedListMatch) {
+            playerCount = Number.parseInt(detailedListMatch[1], 10) || 0;
+            const rawNames = (detailedListMatch[2] || '').trim();
+            if (rawNames.length > 0) {
+                players = rawNames
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter(Boolean);
+            }
+
+            if (players.length === 0 && playerCount > 0) {
+                players = Array.from({ length: playerCount }, (_value, index) => `Player${index + 1}`);
+            }
+            break;
+        }
+
+        const compactCountMatch = line.match(/(\d+)\/(\d+)\s+players online/i);
+        if (compactCountMatch) {
+            playerCount = Number.parseInt(compactCountMatch[1], 10) || 0;
+            if (playerCount > 0) {
+                players = Array.from({ length: playerCount }, (_value, index) => `Player${index + 1}`);
+            }
+            break;
+        }
+    }
+
+    return {
+        players,
+        playerCount
+    };
 }
 
 function sanitizeFileName(name) {
@@ -269,17 +325,7 @@ function startServerStatsCollection(serverName, process, mainWindow) {
             const startTime = serverStartTimes.get(serverName) || Date.now();
             const uptime = Math.floor((Date.now() - startTime) / 1000);
             const consoleBuffer = serverConsoleBuffers.get(serverName) || [];
-            let players = [];
-            for (let i = consoleBuffer.length - 1; i >= 0; i--) {
-                const line = consoleBuffer[i];
-                if (line.includes('players online:')) {
-                    const match = line.match(/(\d+)\/.*players online:/);
-                    if (match) {
-                        players = Array(parseInt(match[0])).fill('Player').map((p, i) => `${p}${i + 1}`);
-                    }
-                    break;
-                }
-            }
+            const { players, playerCount } = extractPlayersFromConsoleBuffer(consoleBuffer);
 
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('server:stats', {
@@ -287,7 +333,8 @@ function startServerStatsCollection(serverName, process, mainWindow) {
                     cpu: stats.cpu,
                     memory: stats.memory,
                     uptime: uptime,
-                    players: players
+                    players: players,
+                    playerCount: playerCount
                 });
             }
         } catch (error) {
@@ -650,19 +697,23 @@ eula=true
                     cpu: 0,
                     memory: 0,
                     uptime: 0,
-                    players: []
+                    players: [],
+                    playerCount: 0
                 };
             }
 
             const stats = await getProcessStats(process.pid);
             const startTime = serverStartTimes.get(serverName) || Date.now();
             const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const consoleBuffer = serverConsoleBuffers.get(serverName) || [];
+            const { players, playerCount } = extractPlayersFromConsoleBuffer(consoleBuffer);
 
             return {
                 cpu: stats.cpu,
                 memory: stats.memory,
                 uptime: uptime,
-                players: []
+                players: players,
+                playerCount: playerCount
             };
         } catch (error) {
             console.error('[Servers] Error getting stats:', error);
@@ -670,7 +721,8 @@ eula=true
                 cpu: 0,
                 memory: 0,
                 uptime: 0,
-                players: []
+                players: [],
+                playerCount: 0
             };
         }
     });
@@ -680,7 +732,16 @@ eula=true
             if (!process || !process.stdin) {
                 throw new Error('Server is not running');
             }
-            const cleanCommand = command.startsWith('/') ? command.substring(1) : command;
+
+            const rawCommand = String(command || '').trim();
+            const cleanCommand = rawCommand.startsWith('/') ? rawCommand.substring(1) : rawCommand;
+            const normalizedCommand = cleanCommand.toLowerCase();
+
+            if (normalizedCommand === 'restart') {
+                markServerRestartRequested(serverName, 'console-command');
+                return await restartServerInternal(serverName, mainWindow);
+            }
+
             process.stdin.write(cleanCommand + '\n');
             const buffer = serverConsoleBuffers.get(serverName) || [];
             buffer.push(`> ${command}`);
@@ -1061,6 +1122,15 @@ eula=false
                 buffer.push(line);
                 if (buffer.length > 500) buffer.shift();
                 serverConsoleBuffers.set(name, buffer);
+
+                const normalizedLine = stripAnsi(line).toLowerCase();
+                if (
+                    normalizedLine.includes('issued server command: /restart') ||
+                    normalizedLine.includes('issued server command: restart')
+                ) {
+                    markServerRestartRequested(name, 'in-game-command');
+                }
+
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('server:console', {
                         serverName: name,
@@ -1102,6 +1172,8 @@ eula=false
             serverProcess.on('exit', async (code, signal) => {
                 console.log(`[Servers] Server ${name} exited with code ${code}, signal ${signal}`);
 
+                const shouldAutoRestart = consumeServerRestartRequested(name);
+
                 serverProcesses.delete(name);
                 serverStartTimes.delete(name);
 
@@ -1124,6 +1196,25 @@ eula=false
                         serverName: name,
                         log: '[INFO] Server stopped'
                     });
+                }
+
+                if (shouldAutoRestart) {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('server:status', { serverName: name, status: 'restarting' });
+                    }
+
+                    const restartBuffer = serverConsoleBuffers.get(name) || [];
+                    restartBuffer.push('[INFO] Restart requested - starting server again...');
+                    serverConsoleBuffers.set(name, restartBuffer);
+
+                    setTimeout(async () => {
+                        const result = await startServerInternal(name, mainWindow);
+                        if (!result?.success) {
+                            const failureBuffer = serverConsoleBuffers.get(name) || [];
+                            failureBuffer.push(`[ERROR] Auto restart failed: ${result?.error || 'Unknown error'}`);
+                            serverConsoleBuffers.set(name, failureBuffer);
+                        }
+                    }, 1500);
                 }
             });
 
@@ -1262,7 +1353,8 @@ eula=false
             return { success: false, error: error.message };
         }
     }
-    ipcMain.handle('server:restart', async (event, name) => {
+
+    async function restartServerInternal(name, mainWindow) {
         try {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('server:status', { serverName: name, status: 'restarting' });
@@ -1271,14 +1363,18 @@ eula=false
             const buffer = serverConsoleBuffers.get(name) || [];
             buffer.push('[INFO] Restarting server...');
             serverConsoleBuffers.set(name, buffer);
-            await stopServerInternal(name, mainWindow);
 
+            await stopServerInternal(name, mainWindow);
             await new Promise(resolve => setTimeout(resolve, 2000));
             return await startServerInternal(name, mainWindow);
         } catch (error) {
             console.error('[Servers] Error restarting server:', error);
             return { success: false, error: error.message };
         }
+    }
+
+    ipcMain.handle('server:restart', async (event, name) => {
+        return await restartServerInternal(name, mainWindow);
     });
     ipcMain.handle('server:open-folder', async (event, name) => {
         try {
@@ -1993,6 +2089,36 @@ eula=false
             return { success: true };
         } catch (error) {
             console.error(`[Servers] Error creating directory for ${serverName}:`, error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('server:upload-file', async (event, serverName, relativePath, localFilePath) => {
+        try {
+            const sourcePath = String(localFilePath || '').trim();
+            if (!sourcePath) {
+                return { success: false, error: 'Local file path is missing' };
+            }
+
+            const serversDir = path.join(app.getPath('userData'), 'servers');
+            const safeName = sanitizeFileName(serverName);
+            const serverDir = path.join(serversDir, safeName);
+            const targetPath = path.normalize(path.join(serverDir, String(relativePath || '')));
+
+            if (!targetPath.startsWith(serverDir)) {
+                return { success: false, error: 'Access denied' };
+            }
+
+            if (!await fs.pathExists(sourcePath)) {
+                return { success: false, error: 'Source file not found' };
+            }
+
+            await fs.ensureDir(path.dirname(targetPath));
+            await fs.copy(sourcePath, targetPath, { overwrite: true });
+
+            return { success: true };
+        } catch (error) {
+            console.error(`[Servers] Error uploading file for ${serverName}:`, error);
             return { success: false, error: error.message };
         }
     });

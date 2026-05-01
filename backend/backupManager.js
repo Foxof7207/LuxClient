@@ -106,13 +106,23 @@ class BackupManager {
         }
 
         const files = await fs.readdir(instanceBackupsDir);
-        const backupFiles = files
-            .filter(f => f.endsWith('.zip'))
-            .map(f => ({
-                name: f,
-                path: path.join(instanceBackupsDir, f),
-                time: fs.statSync(path.join(instanceBackupsDir, f)).mtime.getTime()
-            }))
+        const zipFiles = files.filter(f => f.endsWith('.zip'));
+        const backupFilesRaw = await Promise.all(zipFiles.map(async (fileName) => {
+            const fullPath = path.join(instanceBackupsDir, fileName);
+            try {
+                const stats = await fs.stat(fullPath);
+                return {
+                    name: fileName,
+                    path: fullPath,
+                    time: stats.mtime.getTime()
+                };
+            } catch {
+                return null;
+            }
+        }));
+
+        const backupFiles = backupFilesRaw
+            .filter(Boolean)
             .sort((a, b) => b.time - a.time);
 
         if (backupFiles.length > maxBackups) {

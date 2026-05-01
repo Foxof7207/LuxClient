@@ -455,13 +455,37 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         }
     };
 
+    const fetchAllContentForUpdateCheck = async () => {
+        const [modsRes, packsRes, shadersRes] = await Promise.all([
+            window.electronAPI.getMods(instance.name),
+            window.electronAPI.getResourcePacks(instance.name),
+            window.electronAPI.getShaders(instance.name)
+        ]);
+
+        const latestMods = modsRes?.success && Array.isArray(modsRes.mods) ? modsRes.mods : [];
+        const latestPacks = packsRes?.success && Array.isArray(packsRes.packs) ? packsRes.packs : [];
+        const latestShaders = shadersRes?.success && Array.isArray(shadersRes.shaders) ? shadersRes.shaders : [];
+
+        setMods(latestMods);
+        setResourcePacks(latestPacks);
+        setShaders(latestShaders);
+
+        return {
+            latestMods,
+            latestPacks,
+            latestShaders
+        };
+    };
+
     const handleCheckUpdates = async (silent = false) => {
         setCheckingUpdates(true);
         try {
+            const { latestMods, latestPacks, latestShaders } = await fetchAllContentForUpdateCheck();
+
             const contentToCheck = [
-                ...mods.filter(m => m.projectId).map(m => ({ projectId: m.projectId, versionId: m.versionId, source: m.source, type: 'mod', name: m.name })),
-                ...resourcePacks.filter(p => p.projectId).map(p => ({ projectId: p.projectId, versionId: p.versionId, source: p.source, type: 'resourcepack', name: p.name })),
-                ...shaders.filter(s => s.projectId).map(s => ({ projectId: s.projectId, versionId: s.versionId, source: s.source, type: 'shader', name: s.name }))
+                ...latestMods.filter(m => m.projectId).map(m => ({ projectId: m.projectId, versionId: m.versionId, source: m.source, type: 'mod', name: m.name })),
+                ...latestPacks.filter(p => p.projectId).map(p => ({ projectId: p.projectId, versionId: p.versionId, source: p.source, type: 'resourcepack', name: p.name })),
+                ...latestShaders.filter(s => s.projectId).map(s => ({ projectId: s.projectId, versionId: s.versionId, source: s.source, type: 'shader', name: s.name }))
             ];
 
             if (contentToCheck.length === 0) {
