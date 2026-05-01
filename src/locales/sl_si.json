@@ -874,7 +874,11 @@
             "game_version": "Različica igre",
             "mod_loader": "Nalagalnik modov (Mod Loader)",
             "migrate_btn": "Migriraj in posodobi mode",
-            "migrate_note": "Obstoječi modi bodo zamenjani z združljivimi različicami ali odstranjeni, če niso najdeni."
+            "migrate_note": "Obstoječi modi bodo zamenjani z združljivimi različicami ali odstranjeni, če niso najdeni.",
+            "migration_review_title": "Pregled migracije",
+            "migration_review_desc": "Za nekatere elemente ni bila najdena zdruzljiva posodobitev. Izberite, kaj naj se odstrani pred nadaljevanjem migracije.",
+            "keep_all": "Obdrzi vse",
+            "delete_all": "Izbrisi vse"
         },
         "window": {
             "title": "Nastavitve okna",

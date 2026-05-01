@@ -18,6 +18,9 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
     const [availableVersions, setAvailableVersions] = useState([]);
     const [loadingVersions, setLoadingVersions] = useState(false);
     const [showSnapshots, setShowSnapshots] = useState(false);
+    const [showMigrationReview, setShowMigrationReview] = useState(false);
+    const [migrationPreview, setMigrationPreview] = useState<any>(null);
+    const [migrationSelection, setMigrationSelection] = useState<Record<string, boolean>>({});
     const modalRef = useRef(null);
 
     React.useEffect(() => {
@@ -81,16 +84,18 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
         }
     };
 
-    const handleMigrate = async () => {
+    const startMigrationWithSelection = async (removeUnresolvedIds: string[] = []) => {
         setLoading(true);
         setError(null);
         try {
             const res = await window.electronAPI.migrateInstance(instance.name, {
                 version: config.version,
-                loader: config.loader
+                loader: config.loader,
+                removeUnresolvedIds
             });
             if (res.success) {
                 addNotification('Migration started in background', 'success');
+                setShowMigrationReview(false);
                 onClose();
             } else {
                 setError("Migration failed: " + res.error);
@@ -100,6 +105,60 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
             setError("Migration error: " + e.message);
             setLoading(false);
         }
+    };
+
+    const handleMigrate = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const preview = await window.electronAPI.previewInstanceMigration(instance.name, {
+                version: config.version,
+                loader: config.loader
+            });
+
+            if (!preview?.success) {
+                setError("Migration preview failed: " + (preview?.error || 'Unknown error'));
+                setLoading(false);
+                return;
+            }
+
+            const unresolvedItems = Array.isArray(preview.unresolved) ? preview.unresolved : [];
+            if (unresolvedItems.length === 0) {
+                await startMigrationWithSelection([]);
+                return;
+            }
+
+            const defaultSelection: Record<string, boolean> = {};
+            unresolvedItems.forEach((item) => {
+                defaultSelection[item.id] = false;
+            });
+
+            setMigrationPreview(preview);
+            setMigrationSelection(defaultSelection);
+            setShowMigrationReview(true);
+            setLoading(false);
+        } catch (e) {
+            setError("Migration preview error: " + e.message);
+            setLoading(false);
+        }
+    };
+
+    const toggleMigrationSelection = (id: string) => {
+        setMigrationSelection((prev) => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    const setAllMigrationSelections = (value: boolean) => {
+        const unresolvedItems = Array.isArray(migrationPreview?.unresolved) ? migrationPreview.unresolved : [];
+        const nextSelection: Record<string, boolean> = {};
+        unresolvedItems.forEach((item) => {
+            nextSelection[item.id] = value;
+        });
+        setMigrationSelection(nextSelection);
+    };
+
+    const confirmMigrationAfterReview = async () => {
+        const removeUnresolvedIds = Object.keys(migrationSelection).filter((id) => migrationSelection[id]);
+        await startMigrationWithSelection(removeUnresolvedIds);
     };
 
     const handleDelete = async () => {
@@ -475,6 +534,82 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
                     confirmLabel={t('instance_settings.danger.delete_forever_btn')}
                     isDanger
                 />
+            )}
+
+            {showMigrationReview && (
+                <div
+                    className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6 backdrop-blur-sm"
+                    onClick={() => setShowMigrationReview(false)}
+                >
+                    <div
+                        className="bg-popover w-full max-w-3xl rounded-xl border border-border shadow-2xl overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-5 border-b border-border">
+                            <h3 className="text-xl font-bold">{t('instance_settings.installation.migration_review_title', 'Migration review')}</h3>
+                            <p className="text-sm text-muted-foreground mt-1">
+                                {t('instance_settings.installation.migration_review_desc', 'No compatible update was found for some items. Choose which ones should be deleted before migration continues.')}
+                            </p>
+                        </div>
+
+                        <div className="p-5 space-y-4 max-h-[55vh] overflow-y-auto">
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setAllMigrationSelections(false)}
+                                    className="px-3 py-1.5 text-sm rounded border border-border hover:bg-accent"
+                                >
+                                    {t('instance_settings.installation.keep_all', 'Keep all')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setAllMigrationSelections(true)}
+                                    className="px-3 py-1.5 text-sm rounded border border-red-500/40 text-red-400 hover:bg-red-500/10"
+                                >
+                                    {t('instance_settings.installation.delete_all', 'Delete all')}
+                                </button>
+                            </div>
+
+                            <div className="space-y-2">
+                                {(migrationPreview?.unresolved || []).map((item) => {
+                                    const shouldDelete = Boolean(migrationSelection[item.id]);
+                                    return (
+                                        <label key={item.id} className="flex items-start gap-3 p-3 rounded border border-border hover:bg-accent/40 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={shouldDelete}
+                                                onChange={() => toggleMigrationSelection(item.id)}
+                                                className="mt-1"
+                                            />
+                                            <div className="min-w-0">
+                                                <div className="font-semibold truncate">{item.title || item.name}</div>
+                                                <div className="text-xs text-muted-foreground uppercase tracking-wide mt-1">
+                                                    {item.projectType} • {item.name}
+                                                </div>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="p-5 border-t border-border flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowMigrationReview(false)}
+                                className="px-4 py-2 rounded hover:bg-accent"
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                onClick={confirmMigrationAfterReview}
+                                disabled={loading}
+                                className="px-4 py-2 rounded bg-primary text-black font-bold hover:brightness-110 disabled:opacity-50"
+                            >
+                                {loading ? t('common.loading', 'Loading...') : t('instance_settings.installation.migrate_btn')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </>
     );

@@ -1,6 +1,6 @@
 import React from 'react';
 
-function ThemeCard({ theme, onApply, onDelete, isCustom = false }: { theme: any; onApply: any; onDelete?: any; isCustom?: boolean }) {
+function ThemeCard({ theme, onApply, onDelete, isCustom = false, isActive = false }: { theme: any; onApply: any; onDelete?: any; isCustom?: boolean; isActive?: boolean }) {
     const primary = theme?.primary || theme?.primaryColor || '#22e07a';
     const bg = theme?.bg || theme?.background || theme?.backgroundColor || '#0d1117';
     const surface = theme?.surface || theme?.surfaceColor || '#161b22';
@@ -19,7 +19,11 @@ function ThemeCard({ theme, onApply, onDelete, isCustom = false }: { theme: any;
     return (
         <button
             onClick={onApply}
-            className="group relative overflow-hidden rounded-xl border border-border hover:border-primary/30 transition-all duration-300"
+            className={`group relative overflow-hidden rounded-xl border transition-all duration-300 ${
+                isActive
+                    ? 'border-primary ring-2 ring-primary/25 shadow-[0_0_0_1px_rgba(0,0,0,0.02)]'
+                    : 'border-border hover:border-primary/30'
+            }`}
         >
             { }
             <div className="h-20 relative overflow-hidden">
@@ -49,9 +53,21 @@ function ThemeCard({ theme, onApply, onDelete, isCustom = false }: { theme: any;
             { }
             <div className="bg-card backdrop-blur-sm p-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-muted-foreground group-hover:text-foreground transition-colors truncate pr-2">
-                        {theme.name || theme.handle || 'Theme'}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-2 pr-2">
+                        <span className="text-xs font-bold text-muted-foreground group-hover:text-foreground transition-colors truncate">
+                            {theme.name || theme.handle || 'Theme'}
+                        </span>
+                        {isActive && (
+                            <span className="shrink-0 rounded-full border border-primary/40 bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                                Active
+                            </span>
+                        )}
+                        {theme.limitedEdition && (
+                            <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                                Limited
+                            </span>
+                        )}
+                    </div>
                     {isCustom && onDelete && (
                         <div
                             onClick={(e) => {

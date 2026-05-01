@@ -876,7 +876,11 @@
             "game_version": "Spielversion",
             "mod_loader": "Mod-Loader",
             "migrate_btn": "Migriere & Mods aktualisiere",
-            "migrate_note": "Mods wo nüm kompatibel sind wärdet ersetzt oder entfernt."
+            "migrate_note": "Mods wo nüm kompatibel sind wärdet ersetzt oder entfernt.",
+            "migration_review_title": "Migration prueefe",
+            "migration_review_desc": "Fuer e paar Inhalte isch kei kompatibles Update gfunde worde. Waehle us, was vor dr Migration gloescht werde söll.",
+            "keep_all": "Alles bhalte",
+            "delete_all": "Alles loesche"
         },
         "window": {
             "title": "Fänschteriistellige",

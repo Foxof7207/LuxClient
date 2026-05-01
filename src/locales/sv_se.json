@@ -874,7 +874,11 @@
             "game_version": "Spelversion",
             "mod_loader": "Mod-inläsare",
             "migrate_btn": "Migrera & Uppdatera moddar",
-            "migrate_note": "Befintliga moddar kommer att ersättas med kompatibla versioner eller tas bort om de inte hittas."
+            "migrate_note": "Befintliga moddar kommer att ersättas med kompatibla versioner eller tas bort om de inte hittas.",
+            "migration_review_title": "Granska migrering",
+            "migration_review_desc": "Ingen kompatibel uppdatering hittades for vissa objekt. Valj vad som ska tas bort innan migreringen fortsatter.",
+            "keep_all": "Behall allt",
+            "delete_all": "Ta bort allt"
         },
         "window": {
             "title": "Fönsterinställningar",

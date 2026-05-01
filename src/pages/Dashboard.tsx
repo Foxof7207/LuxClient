@@ -68,10 +68,77 @@ import {
 const DEFAULT_ICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'%3E%3C/path%3E%3Cpolyline points='3.27 6.96 12 12.01 20.73 6.96'%3E%3C/polyline%3E%3Cline x1='12' y1='22.08' x2='12' y2='12'%3E%3C/line%3E%3C/svg%3E";
 
-const InstanceCard = ({
+// Stable module-level row component — never changes identity, so react-window
+// never unmounts/remounts rows when Dashboard re-renders.
+function InstanceListRow({ index, style, rows, renderCard, toggleFolder }: any) {
+  const item = rows[index];
+  if (!item) return null;
+
+  if (item.type === "section-header") {
+    return (
+      <div style={style}>
+        <div className="mb-3 mt-2 flex items-center gap-3 pr-4">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+            {item.title}
+          </span>
+          <Separator className="flex-1" />
+        </div>
+      </div>
+    );
+  }
+
+  if (item.type === "folder-header") {
+    return (
+      <div style={style} className="pr-4">
+        <button
+          type="button"
+          onClick={() => toggleFolder(item.key)}
+          className="w-full flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-left hover:bg-muted/50"
+          style={{
+            marginLeft: `${item.depth * 10}px`,
+            width: `calc(100% - ${item.depth * 10}px)`,
+          }}
+        >
+          {item.expanded ? (
+            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+          <Folder className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium text-foreground truncate">
+            {item.name}
+          </span>
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            {item.count}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  if (item.type === "instance-row") {
+    return (
+      <div style={style} className="pr-4">
+        <div
+          className="grid gap-2"
+          style={{
+            marginLeft: `${item.depth * 10}px`,
+            gridTemplateColumns: `repeat(${item.cols}, minmax(0, 1fr))`,
+          }}
+        >
+          {item.instances.map((instance: any) => renderCard(instance))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+const InstanceCard = React.memo(function InstanceCard({
   instance,
   runningInstances,
-  activeDownloads,
+  installState,
   pendingLaunches,
   onInstanceClick,
   selectionMode,
@@ -85,7 +152,7 @@ const InstanceCard = ({
   setPendingLaunches,
   t,
   isGuest,
-}) => {
+}: any) {
   const formatPlaytime = (ms) => {
     if (!ms || ms <= 0) return t("common.time.0h");
     const hours = Math.floor(ms / 3600000);
@@ -96,12 +163,6 @@ const InstanceCard = ({
 
   const liveStatus = runningInstances[instance.name];
   const persistedStatus = instance.status;
-  const installStateKey = Object.keys(activeDownloads).find(
-    (k) => k.toLowerCase() === instance.name.toLowerCase(),
-  );
-  const installState = installStateKey
-    ? activeDownloads[installStateKey]
-    : null;
   const isInstalling = !!installState;
   const status = isInstalling
     ? "installing"
@@ -325,7 +386,7 @@ const InstanceCard = ({
       </div>
     </div>
   );
-};
+});
 
 function Dashboard({
   onInstanceClick,
@@ -1399,13 +1460,18 @@ function Dashboard({
     </>
   );
 
-  const renderInstanceCard = (instance) => (
+  const renderInstanceCard = (instance) => {
+    const installStateKey = Object.keys(activeDownloads).find(
+      (k) => k.toLowerCase() === instance.name.toLowerCase(),
+    );
+    const installState = installStateKey ? activeDownloads[installStateKey] : null;
+    return (
     <ContextMenu key={instance.name}>
       <ContextMenuTrigger>
         <InstanceCard
           instance={instance}
           runningInstances={runningInstances}
-          activeDownloads={activeDownloads}
+          installState={installState}
           pendingLaunches={pendingLaunches}
           onInstanceClick={(selectedInstance) => {
             if (selectionMode) {
@@ -1543,7 +1609,8 @@ function Dashboard({
         {instanceMenuItems(instance)}
       </ContextMenuContent>
     </ContextMenu>
-  );
+    );
+  };
 
   return (
     <div className="flex flex-col h-full relative">
@@ -1727,6 +1794,7 @@ function Dashboard({
                         type: "instance-row",
                         instances: item.instances.slice(i, i + COLS),
                         key: `${item.key}-row-${i}`,
+                        cols: COLS,
                       });
                     }
                   } else {
@@ -1744,71 +1812,8 @@ function Dashboard({
                       return 145; // instance-row
                     }}
                     className="custom-scrollbar"
-                    rowProps={{}}
-                    rowComponent={({ index, style }) => {
-                      const item = finalRows[index];
-                      if (item.type === "section-header") {
-                        return (
-                          <div style={style}>
-                            <div className="mb-3 mt-2 flex items-center gap-3 pr-4">
-                              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                                {item.title}
-                              </span>
-                              <Separator className="flex-1" />
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      if (item.type === "folder-header") {
-                        return (
-                          <div style={style} className="pr-4">
-                            <button
-                              type="button"
-                              onClick={() => toggleFolder(item.key)}
-                              className="w-full flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-left hover:bg-muted/50"
-                              style={{
-                                marginLeft: `${item.depth * 10}px`,
-                                width: `calc(100% - ${item.depth * 10}px)`,
-                              }}
-                            >
-                              {item.expanded ? (
-                                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                              )}
-                              <Folder className="w-3.5 h-3.5 text-muted-foreground" />
-                              <span className="text-xs font-medium text-foreground truncate">
-                                {item.name}
-                              </span>
-                              <span className="ml-auto text-[10px] text-muted-foreground">
-                                {item.count}
-                              </span>
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      if (item.type === "instance-row") {
-                        return (
-                          <div style={style} className="pr-4">
-                            <div
-                              className="grid gap-2"
-                              style={{
-                                marginLeft: `${item.depth * 10}px`,
-                                gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
-                              }}
-                            >
-                              {item.instances.map((instance: any) =>
-                                renderInstanceCard(instance),
-                              )}
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      return null;
-                    }}
+                    rowProps={{ rows: finalRows, renderCard: renderInstanceCard, toggleFolder }}
+                    rowComponent={InstanceListRow}
                   />
                 );
               }}

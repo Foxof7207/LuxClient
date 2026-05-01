@@ -107,6 +107,20 @@ const PRESETS = [
     textOnPrimary: "#311204",
   },
   {
+    name: "Summer",
+    primary: "#ff9f1c",
+    bg: "#fff4cf",
+    surface: "#8bd3dd",
+    textOnBackground: "#56351b",
+    textOnSurface: "#14383d",
+    textOnPrimary: "#fff8ef",
+    limitedEdition: true,
+    seasonalAvailability: {
+      startMonth: 5,
+      endMonth: 8,
+    },
+  },
+  {
     name: "Cyberpunk",
     primary: "#f3e600",
     bg: "#1a0033",
@@ -195,6 +209,26 @@ const DEFAULT_THEME = {
   autoAdaptColor: false,
   fontFamily: "Poppins",
   customFonts: [],
+  presetName: null,
+  presetSource: null,
+};
+
+const isPresetCurrentlyAvailable = (preset: any, now = new Date()) => {
+  const availability = preset?.seasonalAvailability;
+  if (!availability) return true;
+
+  const month = now.getMonth() + 1;
+  const { startMonth, endMonth } = availability;
+
+  if (typeof startMonth !== "number" || typeof endMonth !== "number") {
+    return true;
+  }
+
+  if (startMonth <= endMonth) {
+    return month >= startMonth && month <= endMonth;
+  }
+
+  return month >= startMonth || month <= endMonth;
 };
 
 const normalizePresetShape = (preset: any = {}) => ({
@@ -234,6 +268,8 @@ const normalizePresetShape = (preset: any = {}) => ({
   fontFamily: preset.fontFamily || DEFAULT_THEME.fontFamily,
 });
 
+const BUILT_IN_PRESET_SOURCE = "built-in";
+
 const sanitizeTheme = (nextTheme) => {
   const availableFonts = new Set([
     ...FONT_OPTIONS.map((font) => font.value),
@@ -260,6 +296,11 @@ function Styling() {
   const [activeView, setActiveView] = useState("editor");
   const [customPresets, setCustomPresets] = useState([]);
   const [showExportModal, setShowExportModal] = useState(false);
+  const availablePresets = PRESETS.filter((preset) =>
+    isPresetCurrentlyAvailable(preset),
+  );
+  const activeBuiltInPresetName =
+    theme.presetSource === BUILT_IN_PRESET_SOURCE ? theme.presetName : null;
   const fontOptions = [
     ...(theme.customFonts ?? []).map((font) => ({
       value: font.family,
@@ -438,7 +479,7 @@ function Styling() {
     }
   };
 
-  const applyPreset = (p) => {
+  const applyPreset = (p, source = "custom") => {
     const normalizedPreset = normalizePresetShape(p);
     const nt = sanitizeTheme({
       ...theme,
@@ -454,6 +495,8 @@ function Styling() {
       panelOpacity: normalizedPreset.panelOpacity,
       bgOverlay: normalizedPreset.bgOverlay,
       fontFamily: normalizedPreset.fontFamily,
+      presetName: source === BUILT_IN_PRESET_SOURCE ? normalizedPreset.name : null,
+      presetSource: source === BUILT_IN_PRESET_SOURCE ? BUILT_IN_PRESET_SOURCE : null,
     });
     setTheme(nt);
     applyTheme(nt, true);
@@ -579,7 +622,12 @@ function Styling() {
   };
 
   const handleUpdate = (key, value) => {
-    const newTheme = sanitizeTheme({ ...theme, [key]: value });
+    const newTheme = sanitizeTheme({
+      ...theme,
+      [key]: value,
+      presetName: null,
+      presetSource: null,
+    });
     setTheme(newTheme);
     const isBackgroundChange = key === "bgMedia" || key === "bgOverlay";
     applyTheme(newTheme, isBackgroundChange);
@@ -664,6 +712,8 @@ function Styling() {
             ...prev,
             bgMedia: { url: res.url, type: res.type },
             primaryColor: color,
+            presetName: null,
+            presetSource: null,
           };
           applyTheme(nt, true);
           return nt;
@@ -678,6 +728,8 @@ function Styling() {
     const nextTheme = {
       ...DEFAULT_THEME,
       customFonts: theme.customFonts ?? [],
+      presetName: null,
+      presetSource: null,
     };
     setTheme(nextTheme);
     applyTheme(nextTheme, false);
@@ -834,7 +886,7 @@ function Styling() {
                                 <ThemeCard
                                   key={p.handle}
                                   theme={p}
-                                  onApply={() => applyPreset(p)}
+                                  onApply={() => applyPreset(p, "custom")}
                                   onDelete={() => handleDeletePreset(p.handle)}
                                   isCustom={true}
                                 />
@@ -850,11 +902,12 @@ function Styling() {
                             {t("styling.presets")}
                           </span>
                           <div className="grid grid-cols-1 gap-2">
-                            {PRESETS.map((p) => (
+                            {availablePresets.map((p) => (
                               <ThemeCard
                                 key={p.name}
                                 theme={p}
-                                onApply={() => applyPreset(p)}
+                                onApply={() => applyPreset(p, BUILT_IN_PRESET_SOURCE)}
+                                isActive={activeBuiltInPresetName === p.name}
                               />
                             ))}
                           </div>

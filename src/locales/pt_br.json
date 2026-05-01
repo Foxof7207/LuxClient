@@ -874,7 +874,11 @@
             "game_version": "Versão do Jogo",
             "mod_loader": "Loader de Mods",
             "migrate_btn": "Migrar e Atualizar Mods",
-            "migrate_note": "Mods existentes serão substituídos por versões compatíveis ou removidos se não forem encontrados."
+            "migrate_note": "Mods existentes serão substituídos por versões compatíveis ou removidos se não forem encontrados.",
+            "migration_review_title": "Revisao da migracao",
+            "migration_review_desc": "Nenhuma atualizacao compativel foi encontrada para alguns itens. Escolha quais devem ser removidos antes de continuar a migracao.",
+            "keep_all": "Manter tudo",
+            "delete_all": "Excluir tudo"
         },
         "window": {
             "title": "Configurações da Janela",

@@ -874,7 +874,11 @@
             "game_version": "Verzia hry",
             "mod_loader": "Loader módov",
             "migrate_btn": "Migrovať a aktualizovať módy",
-            "migrate_note": "Existujúce módy budú nahradené kompatibilnými verziami alebo odstránené, ak sa nenájdu."
+            "migrate_note": "Existujúce módy budú nahradené kompatibilnými verziami alebo odstránené, ak sa nenájdu.",
+            "migration_review_title": "Kontrola migracie",
+            "migration_review_desc": "Pre niektore polozky sa nenasla kompatibilna aktualizacia. Vyberte, co sa ma odstranit pred pokracovanim migracie.",
+            "keep_all": "Ponechat vsetko",
+            "delete_all": "Odstranit vsetko"
         },
         "window": {
             "title": "Nastavenia okna",

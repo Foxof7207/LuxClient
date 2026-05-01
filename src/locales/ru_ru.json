@@ -874,7 +874,11 @@
             "game_version": "Версия игры",
             "mod_loader": "Загрузчик модов",
             "migrate_btn": "Мигрировать и обновить моды",
-            "migrate_note": "Существующие моды будут заменены совместимыми версиями или удалены, если они не будут найдены."
+            "migrate_note": "Существующие моды будут заменены совместимыми версиями или удалены, если они не будут найдены.",
+            "migration_review_title": "Proverka migracii",
+            "migration_review_desc": "Dlya nekotoryh elementov ne naydeno sovmestimogo obnovleniya. Vyberite, chto udalyt pered prodolzheniem migracii.",
+            "keep_all": "Ostavit vse",
+            "delete_all": "Udalit vse"
         },
         "window": {
             "title": "Настройки окна",

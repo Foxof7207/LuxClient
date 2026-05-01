@@ -874,7 +874,11 @@
             "game_version": "Wersja Gry",
             "mod_loader": "Loader Modów",
             "migrate_btn": "Migruj i zaktualizuj mody",
-            "migrate_note": "Istniejące mody zostaną zastąpione kompatybilnymi wersjami lub usunięte, jeśli nie zostaną znalezione."
+            "migrate_note": "Istniejące mody zostaną zastąpione kompatybilnymi wersjami lub usunięte, jeśli nie zostaną znalezione.",
+            "migration_review_title": "Przeglad migracji",
+            "migration_review_desc": "Dla niektorych elementow nie znaleziono zgodnej aktualizacji. Wybierz, co usunac przed kontynuowaniem migracji.",
+            "keep_all": "Zachowaj wszystko",
+            "delete_all": "Usun wszystko"
         },
         "window": {
             "title": "Ustawienia okna",

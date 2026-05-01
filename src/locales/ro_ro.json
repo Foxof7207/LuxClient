@@ -882,7 +882,11 @@
             "game_version": "Versiunea Jocului",
             "mod_loader": "Mod Loader",
             "migrate_btn": "Migrează și Actualizează Mod-urile",
-            "migrate_note": "Mod-urile existente vor fi înlocuite cu versiuni compatibile sau eliminate dacă nu sunt găsite."
+            "migrate_note": "Mod-urile existente vor fi înlocuite cu versiuni compatibile sau eliminate dacă nu sunt găsite.",
+            "migration_review_title": "Revizuire migrare",
+            "migration_review_desc": "Nu a fost gasita o actualizare compatibila pentru unele elemente. Alege ce trebuie sters inainte de a continua migrarea.",
+            "keep_all": "Pastreaza tot",
+            "delete_all": "Sterge tot"
         },
         "window": {
             "title": "Setări Fereastră",

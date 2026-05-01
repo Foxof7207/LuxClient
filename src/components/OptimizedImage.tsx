@@ -3,7 +3,7 @@ import { imageCache } from '../utils/lruCache';
 
 const OptimizedImage = ({ src, alt, className, fallback, ...props }) => {
     const cached = imageCache.get(src);
-    const [isVisible, setIsVisible] = useState(false);
+    const [isVisible, setIsVisible] = useState(!!cached);
     const [isLoaded, setIsLoaded] = useState(!!cached);
     const [error, setError] = useState(false);
     const imgRef = useRef(null);

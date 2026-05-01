@@ -64,6 +64,7 @@ interface ElectronAPI {
   updateInstance: (name: string, config: any) => Promise<any>;
   updateInstanceConfig: (name: string, config: any) => Promise<any>;
   setInstanceFolderPath: (instanceRef: any, folderPath: string) => Promise<any>;
+  previewInstanceMigration: (name: string, config: any) => Promise<any>;
   migrateInstance: (name: string, config: any) => Promise<any>;
   reinstallInstance: (name: string, type?: string) => Promise<any>;
   deleteInstance: (name: string) => Promise<any>;

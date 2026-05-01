@@ -874,7 +874,11 @@
             "game_version": "Versión del juego",
             "mod_loader": "Cargador de mods",
             "migrate_btn": "Migrar y actualizar mods",
-            "migrate_note": "Se reemplazarán mods existentes por los compatibles, o se eliminarán si no existen."
+            "migrate_note": "Se reemplazarán mods existentes por los compatibles, o se eliminarán si no existen.",
+            "migration_review_title": "Revision de migracion",
+            "migration_review_desc": "No se encontro una actualizacion compatible para algunos elementos. Elige cuales se deben eliminar antes de continuar la migracion.",
+            "keep_all": "Conservar todo",
+            "delete_all": "Eliminar todo"
         },
         "window": {
             "title": "Ajustes de ventana",

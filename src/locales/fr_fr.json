@@ -874,7 +874,11 @@
             "game_version": "Version du jeu",
             "mod_loader": "Chargeur de mods (Mod Loader)",
             "migrate_btn": "Migrer et mettre à jour les mods",
-            "migrate_note": "Les mods existants seront remplacés par des versions compatibles ou supprimés si introuvables."
+            "migrate_note": "Les mods existants seront remplacés par des versions compatibles ou supprimés si introuvables.",
+            "migration_review_title": "Verification de la migration",
+            "migration_review_desc": "Aucune mise a jour compatible na ete trouvee pour certains elements. Choisissez ceux a supprimer avant de poursuivre la migration.",
+            "keep_all": "Tout conserver",
+            "delete_all": "Tout supprimer"
         },
         "window": {
             "title": "Paramètres de la fenêtre",

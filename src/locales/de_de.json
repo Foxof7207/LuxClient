@@ -888,7 +888,11 @@
             "game_version": "Spielversion",
             "mod_loader": "Mod-Loader",
             "migrate_btn": "Migrieren & Mods aktualisieren",
-            "migrate_note": "Vorhandene Mods werden durch passende Versionen ersetzt bzw. entfernt, wenn keine gefunden werden."
+            "migrate_note": "Vorhandene Mods werden durch passende Versionen ersetzt bzw. entfernt, wenn keine gefunden werden.",
+            "migration_review_title": "Migration pruefen",
+            "migration_review_desc": "Fuer einige Inhalte wurde kein kompatibles Update gefunden. Waehle aus, was vor der Migration geloescht werden soll.",
+            "keep_all": "Alles behalten",
+            "delete_all": "Alles loeschen"
         },
         "window": {
             "title": "Fenster-Einstellungen",

@@ -918,9 +918,16 @@ const QUILT_META = 'https://meta.quiltmc.org/v3';
 const FORGE_META = 'https://meta.modrinth.com/forge/v0';
 const NEOFORGE_META = 'https://meta.modrinth.com/neo/v0';
 const CURSEFORGE_API = 'https://api.curse.tools/v1/cf';
+const API_USER_AGENT = 'Client/Lux/1.0 (fernsehheft@pluginhub.de)';
 const CURSEFORGE_PROJECT_PREFIX = 'curseforge:';
 const MODRINTH_PROJECT_PREFIX = 'modrinth:';
 const activeTasks = new Map();
+
+const CURSEFORGE_CLASS_BY_PROJECT_TYPE = {
+    mod: 6,
+    resourcepack: 12,
+    shader: 6552
+};
 
 const CURSEFORGE_AUTOINSTALL_LOADER_ALIASES = {
     forge: ['forge'],
@@ -1007,6 +1014,388 @@ const isCurseForgeAutoInstallVersionCompatible = (file, mcVersionOrVersions) => 
 
     return expectedVersions.some((entry) => gameVersions.includes(entry));
 };
+
+const normalizeMigrationProjectType = (projectType) => {
+    const normalized = String(projectType || '').toLowerCase().trim();
+    if (normalized === 'shaderpack' || normalized === 'shader_pack') return 'shader';
+    if (normalized === 'resource_pack' || normalized === 'texturepack' || normalized === 'texture_pack') return 'resourcepack';
+    return normalized || 'mod';
+};
+
+const getMigrationFolderForProjectType = (projectType) => {
+    const normalizedType = normalizeMigrationProjectType(projectType);
+    if (normalizedType === 'resourcepack') return 'resourcepacks';
+    if (normalizedType === 'shader') return 'shaderpacks';
+    return 'mods';
+};
+
+const isVisualMigrationProjectType = (projectType) => {
+    const normalizedType = normalizeMigrationProjectType(projectType);
+    return normalizedType === 'resourcepack' || normalizedType === 'shader';
+};
+
+const getCurseForgeClassIdForMigration = (projectType) => {
+    const normalizedType = normalizeMigrationProjectType(projectType);
+    return CURSEFORGE_CLASS_BY_PROJECT_TYPE[normalizedType] || CURSEFORGE_CLASS_BY_PROJECT_TYPE.mod;
+};
+
+const normalizeCurseForgeProjectIdForMigration = (projectId) => {
+    const raw = String(projectId || '').trim();
+    if (!raw) return NaN;
+    if (raw.startsWith(CURSEFORGE_PROJECT_PREFIX)) {
+        return Number.parseInt(raw.slice(CURSEFORGE_PROJECT_PREFIX.length), 10);
+    }
+    return Number.parseInt(raw, 10);
+};
+
+const normalizeMigrationSearchQuery = (entry) => {
+    const source = String(entry?.title || entry?.name || '').trim();
+    if (!source) return '';
+
+    return source
+        .replace(/\.(jar|jar\.disabled|zip|rar)$/i, '')
+        .replace(/[._-]+/g, ' ')
+        .replace(/\[[^\]]+\]/g, ' ')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\b(v?\d+(?:\.\d+){1,3}[a-z0-9-]*)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+const createMigrationEntryId = (entry) => `${normalizeMigrationProjectType(entry?.projectType)}:${String(entry?.name || '').toLowerCase()}`;
+
+const readMigrationContentEntries = async (instanceDir, projectType, modCache) => {
+    const normalizedType = normalizeMigrationProjectType(projectType);
+    const folder = getMigrationFolderForProjectType(normalizedType);
+    const contentDir = path.join(instanceDir, folder);
+
+    if (!await fs.pathExists(contentDir)) return [];
+
+    const dirents = await fs.readdir(contentDir, { withFileTypes: true });
+    const entries = [];
+
+    for (const dirent of dirents) {
+        const name = dirent.name;
+        const absolutePath = path.join(contentDir, name);
+
+        const includeEntry = (() => {
+            if (normalizedType === 'mod') {
+                return dirent.isFile() && (name.endsWith('.jar') || name.endsWith('.jar.disabled') || name.endsWith('.litemod'));
+            }
+            if (normalizedType === 'resourcepack') {
+                return dirent.isDirectory() || /\.(zip|rar)$/i.test(name);
+            }
+            if (normalizedType === 'shader') {
+                return dirent.isDirectory() || /\.zip$/i.test(name);
+            }
+            return false;
+        })();
+
+        if (!includeEntry) continue;
+
+        let stats;
+        try {
+            stats = await fs.stat(absolutePath);
+        } catch {
+            continue;
+        }
+
+        const cacheKey = `${name}-${stats.size}`;
+        const cacheEntry = (modCache && typeof modCache === 'object') ? (modCache[cacheKey] || null) : null;
+
+        entries.push({
+            projectType: normalizedType,
+            folder,
+            name,
+            title: cacheEntry?.title || name,
+            path: absolutePath,
+            size: stats.size,
+            isDirectory: dirent.isDirectory(),
+            cacheKey,
+            projectId: cacheEntry?.projectId || null,
+            versionId: cacheEntry?.versionId || null,
+            source: String(cacheEntry?.source || '').toLowerCase() || 'modrinth'
+        });
+    }
+
+    return entries;
+};
+
+const resolveCurseForgeCandidateByProjectId = async (projectId, projectType, targetLoader, versionAliases) => {
+    const numericProjectId = normalizeCurseForgeProjectIdForMigration(projectId);
+    if (!Number.isFinite(numericProjectId)) {
+        return { success: false, reason: 'invalid-project-id' };
+    }
+
+    let files = [];
+    try {
+        const filesRes = await axios.get(`${CURSEFORGE_API}/mods/${numericProjectId}/files`, {
+            params: {
+                pageSize: 100,
+                index: 0
+            },
+            headers: {
+                'User-Agent': API_USER_AGENT
+            },
+            timeout: 10000
+        });
+        files = Array.isArray(filesRes?.data?.data) ? filesRes.data.data : [];
+    } catch {
+        return { success: false, reason: 'api-error' };
+    }
+
+    if (files.length === 0) {
+        return { success: false, reason: 'no-files' };
+    }
+
+    const compatibleFiles = files
+        .filter(file => isCurseForgeAutoInstallLoaderCompatible(file, targetLoader))
+        .filter(file => isCurseForgeAutoInstallVersionCompatible(file, versionAliases))
+        .sort((left, right) => new Date(right?.fileDate || 0).getTime() - new Date(left?.fileDate || 0).getTime());
+
+    const selectedFile = compatibleFiles[0];
+    if (!selectedFile || !selectedFile.downloadUrl) {
+        return { success: false, reason: 'unsupported-version' };
+    }
+
+    return {
+        success: true,
+        source: 'curseforge',
+        projectId: `curseforge:${numericProjectId}`,
+        versionId: `cf-file:${selectedFile.id}`,
+        versionLabel: selectedFile.displayName || selectedFile.fileName || `File ${selectedFile.id}`,
+        fileName: selectedFile.fileName || `${numericProjectId}-${selectedFile.id}.jar`,
+        downloadUrl: selectedFile.downloadUrl
+    };
+};
+
+const searchCurseForgeProjectForMigration = async (entry, projectType) => {
+    const query = normalizeMigrationSearchQuery(entry);
+    if (!query || query.length < 2) return { success: false, reason: 'missing-query' };
+
+    const classId = getCurseForgeClassIdForMigration(projectType);
+    try {
+        const response = await axios.get(`${CURSEFORGE_API}/mods/search`, {
+            params: {
+                gameId: 432,
+                classId,
+                searchFilter: query,
+                pageSize: 10,
+                index: 0,
+                sortField: 6,
+                sortOrder: 'desc'
+            },
+            headers: {
+                'User-Agent': API_USER_AGENT
+            },
+            timeout: 10000
+        });
+
+        const results = Array.isArray(response?.data?.data) ? response.data.data : [];
+        if (results.length === 0) {
+            return { success: false, reason: 'not-found' };
+        }
+
+        const best = results[0];
+        if (!Number.isFinite(Number(best?.id))) {
+            return { success: false, reason: 'invalid-response' };
+        }
+
+        return {
+            success: true,
+            projectId: Number(best.id)
+        };
+    } catch {
+        return { success: false, reason: 'api-error' };
+    }
+};
+
+const resolveModrinthCandidateForMigration = async ({ projectId, projectType, targetLoader, versionAliases }) => {
+    const normalizedProjectId = String(projectId || '').startsWith(MODRINTH_PROJECT_PREFIX)
+        ? String(projectId || '').slice(MODRINTH_PROJECT_PREFIX.length)
+        : String(projectId || '').trim();
+
+    if (!normalizedProjectId) {
+        return { success: false, reason: 'missing-project-id' };
+    }
+
+    const isVisualType = isVisualMigrationProjectType(projectType);
+    const queryVariants = isVisualType
+        ? [
+            { game_versions: JSON.stringify(versionAliases) },
+            {}
+        ]
+        : [
+            {
+                loaders: JSON.stringify([targetLoader]),
+                game_versions: JSON.stringify(versionAliases)
+            }
+        ];
+
+    for (const params of queryVariants) {
+        try {
+            const versionsRes = await axios.get(`https://api.modrinth.com/v2/project/${normalizedProjectId}/version`, {
+                params,
+                headers: {
+                    'User-Agent': API_USER_AGENT
+                },
+                timeout: 10000
+            });
+
+            const versions = Array.isArray(versionsRes?.data) ? versionsRes.data : [];
+            if (versions.length === 0) {
+                continue;
+            }
+
+            const latest = versions[0];
+            const primaryFile = latest.files?.find(file => file.primary) || latest.files?.[0];
+            if (!primaryFile?.url || !primaryFile?.filename) {
+                continue;
+            }
+
+            return {
+                success: true,
+                source: 'modrinth',
+                projectId: `modrinth:${normalizedProjectId}`,
+                versionId: latest.id,
+                versionLabel: latest.version_number || latest.name || latest.id,
+                fileName: primaryFile.filename,
+                downloadUrl: primaryFile.url,
+                resolvedProjectId: normalizedProjectId
+            };
+        } catch {
+            continue;
+        }
+    }
+
+    return { success: false, reason: 'unsupported-version' };
+};
+
+const resolveMigrationCandidateForEntry = async (entry, targetVersion, targetLoader) => {
+    const normalizedType = normalizeMigrationProjectType(entry?.projectType);
+    const resolvedLoader = isVisualMigrationProjectType(normalizedType)
+        ? 'vanilla'
+        : String(targetLoader || 'vanilla').toLowerCase();
+    const versionAliases = buildGameVersionAliases(targetVersion);
+    const source = String(entry?.source || '').toLowerCase();
+    const rawProjectId = String(entry?.projectId || '').trim();
+
+    if ((source === 'curseforge' || rawProjectId.startsWith(CURSEFORGE_PROJECT_PREFIX)) && rawProjectId) {
+        const curseResult = await resolveCurseForgeCandidateByProjectId(rawProjectId, normalizedType, resolvedLoader, versionAliases);
+        if (curseResult.success) {
+            return { success: true, update: curseResult };
+        }
+    }
+
+    let modrinthProjectId = '';
+    if (rawProjectId && !rawProjectId.startsWith(CURSEFORGE_PROJECT_PREFIX)) {
+        modrinthProjectId = rawProjectId;
+    }
+
+    if (!modrinthProjectId && !entry?.isDirectory && entry?.path && await fs.pathExists(entry.path)) {
+        try {
+            const hash = await calculateSha1(entry.path);
+            const versionRes = await axios.get(`https://api.modrinth.com/v2/version_file/${hash}`, {
+                headers: {
+                    'User-Agent': API_USER_AGENT
+                },
+                timeout: 10000
+            });
+            modrinthProjectId = String(versionRes?.data?.project_id || '').trim();
+        } catch {
+            // Intentionally ignored. We fallback to CurseForge search below.
+        }
+    }
+
+    if (modrinthProjectId) {
+        const modrinthResult = await resolveModrinthCandidateForMigration({
+            projectId: modrinthProjectId,
+            projectType: normalizedType,
+            targetLoader: resolvedLoader,
+            versionAliases
+        });
+
+        if (modrinthResult.success) {
+            return { success: true, update: modrinthResult };
+        }
+    }
+
+    const searchedProject = await searchCurseForgeProjectForMigration(entry, normalizedType);
+    if (searchedProject.success) {
+        const curseResult = await resolveCurseForgeCandidateByProjectId(searchedProject.projectId, normalizedType, resolvedLoader, versionAliases);
+        if (curseResult.success) {
+            return { success: true, update: curseResult };
+        }
+        return {
+            success: false,
+            reason: curseResult.reason || 'unsupported-version'
+        };
+    }
+
+    return {
+        success: false,
+        reason: searchedProject.reason || 'not-found'
+    };
+};
+
+const buildMigrationPlan = async ({ instanceDir, targetVersion, targetLoader }) => {
+    const modCachePath = path.join(appData, 'mod_cache.json');
+    let modCache = {};
+    try {
+        if (await fs.pathExists(modCachePath)) {
+            modCache = await fs.readJson(modCachePath);
+        }
+    } catch {
+        modCache = {};
+    }
+
+    const entryGroups = await Promise.all([
+        readMigrationContentEntries(instanceDir, 'mod', modCache),
+        readMigrationContentEntries(instanceDir, 'resourcepack', modCache),
+        readMigrationContentEntries(instanceDir, 'shader', modCache)
+    ]);
+    const allEntries = entryGroups.flat();
+
+    const updates = [];
+    const unresolved = [];
+
+    for (const entry of allEntries) {
+        const resolved = await resolveMigrationCandidateForEntry(entry, targetVersion, targetLoader);
+
+        if (resolved.success && resolved.update) {
+            updates.push({
+                id: createMigrationEntryId(entry),
+                projectType: normalizeMigrationProjectType(entry.projectType),
+                name: entry.name,
+                title: entry.title || entry.name,
+                sourcePath: entry.path,
+                targetFolder: entry.folder,
+                update: resolved.update
+            });
+            continue;
+        }
+
+        unresolved.push({
+            id: createMigrationEntryId(entry),
+            projectType: normalizeMigrationProjectType(entry.projectType),
+            name: entry.name,
+            title: entry.title || entry.name,
+            sourcePath: entry.path,
+            reason: resolved.reason || 'not-found'
+        });
+    }
+
+    return {
+        updates,
+        unresolved,
+        summary: {
+            total: allEntries.length,
+            updatable: updates.length,
+            unresolved: unresolved.length
+        }
+    };
+};
+
 async function downloadFile(url, destPath, signal = null, retries = 1) {
     let lastError;
     for (let i = 0; i <= retries; i++) {
@@ -1536,7 +1925,7 @@ module.exports = (ipcMain, win) => {
         }
 
         console.log('--- INSTANCES HANDLER INIT START ---');
-        const startBackgroundInstall = async (finalName, config, cleanInstall = false, isMigration = false) => {
+        const startBackgroundInstall = async (finalName, config, cleanInstall = false, isMigration = false, migrationOptions = {}) => {
             const dir = path.join(instancesDir, finalName);
             const { version, loader } = config;
             // If loaderVersion is missing but versionId contains it (e.g. "1.20.1-forge-47.2.17"), extract it.
@@ -1631,56 +2020,49 @@ module.exports = (ipcMain, win) => {
                             }
                         }
                     };
-                    let modsToInstall = [];
+                    let migratedContentToInstall = [];
                     if (isMigration) {
-                        sendProgress(2, 'Analyzing current mods for migration...');
-                        const modsDir = path.join(dir, 'mods');
-                        if (await fs.pathExists(modsDir)) {
-                            const files = await fs.readdir(modsDir);
-                            const jars = files.filter(f => f.endsWith('.jar'));
+                        sendProgress(2, 'Analyzing current content for migration...');
+                        const migrationPlan = await buildMigrationPlan({
+                            instanceDir: dir,
+                            targetVersion: version,
+                            targetLoader: loader
+                        });
 
-                            for (const jar of jars) {
-                                if (task.aborted) break;
-                                const jarPath = path.join(modsDir, jar);
+                        const removeUnresolvedIds = new Set(
+                            Array.isArray(migrationOptions?.removeUnresolvedIds)
+                                ? migrationOptions.removeUnresolvedIds.map((entry) => String(entry || '').toLowerCase())
+                                : []
+                        );
+
+                        for (const unresolvedItem of migrationPlan.unresolved) {
+                            if (task.aborted) break;
+                            const itemId = String(unresolvedItem.id || '').toLowerCase();
+                            const shouldRemove = removeUnresolvedIds.has(itemId);
+                            if (shouldRemove) {
                                 try {
-                                    const hash = await calculateSha1(jarPath);
-                                    sendProgress(null, `Checking compatibility: ${jar}`);
-                                    try {
-                                        const res = await axios.get(`https://api.modrinth.com/v2/version_file/${hash}`);
-                                        const currentVersion = res.data;
-                                        const projectId = currentVersion.project_id;
-                                        const loaders = [loader.toLowerCase()];
-                                        const gameVersions = buildGameVersionAliases(version);
-
-                                        const searchUrl = `https://api.modrinth.com/v2/project/${projectId}/version?loaders=["${loaders.join('","')}"]&game_versions=["${gameVersions.join('","')}"]`;
-                                        const versionsRes = await axios.get(searchUrl);
-                                        const availableVersions = versionsRes.data;
-
-                                        if (availableVersions && availableVersions.length > 0) {
-                                            const bestVersion = availableVersions[0];
-                                            const primaryFile = bestVersion.files.find(f => f.primary) || bestVersion.files[0];
-                                            modsToInstall.push({
-                                                name: primaryFile.filename,
-                                                url: primaryFile.url,
-                                                oldJar: jar
-                                            });
-                                            appendLog(`Found compatible version for ${jar}: ${bestVersion.version_number}`);
-                                        } else {
-                                            appendLog(`No compatible version found for ${jar} on ${loader} ${version}. Mod will be removed.`);
-                                            await fs.remove(jarPath);
-                                        }
-                                    } catch (e) {
-                                        appendLog(`Mod ${jar} not found on Modrinth or API error. Removing to prevent crashes.`);
-                                        await fs.remove(jarPath);
-                                    }
-                                } catch (e) {
-                                    appendLog(`Failed to process ${jar}: ${e.message}`);
+                                    await fs.remove(unresolvedItem.sourcePath);
+                                    appendLog(`Removed unresolved ${unresolvedItem.projectType}: ${unresolvedItem.name}`);
+                                } catch (removeErr) {
+                                    appendLog(`Failed to remove unresolved ${unresolvedItem.projectType} ${unresolvedItem.name}: ${removeErr.message}`);
                                 }
-                            }
-                            for (const mod of modsToInstall) {
-                                await fs.remove(path.join(modsDir, mod.oldJar));
+                            } else {
+                                appendLog(`Keeping unresolved ${unresolvedItem.projectType}: ${unresolvedItem.name}`);
                             }
                         }
+
+                        migratedContentToInstall = migrationPlan.updates;
+
+                        for (const migratedItem of migratedContentToInstall) {
+                            if (task.aborted) break;
+                            try {
+                                await fs.remove(migratedItem.sourcePath);
+                            } catch (removeErr) {
+                                appendLog(`Failed to remove old ${migratedItem.projectType} ${migratedItem.name}: ${removeErr.message}`);
+                            }
+                        }
+
+                        appendLog(`Migration scan complete: ${migrationPlan.summary.updatable} updatable, ${migrationPlan.summary.unresolved} unresolved.`);
                     }
 
                     let result = { success: true };
@@ -1815,18 +2197,23 @@ module.exports = (ipcMain, win) => {
                             );
                         }
                     } catch (e) { appendLog(`Library sync warning: ${e.message}`); }
-                    if (modsToInstall.length > 0) {
-                        sendProgress(80, `Installing ${modsToInstall.length} migrated mods...`);
-                        const modsDir = path.join(dir, 'mods');
-                        await fs.ensureDir(modsDir);
-                        for (const mod of modsToInstall) {
+                    if (migratedContentToInstall.length > 0) {
+                        sendProgress(80, `Installing ${migratedContentToInstall.length} migrated item(s)...`);
+                        for (const migratedItem of migratedContentToInstall) {
                             if (task.aborted) break;
-                            const dest = path.join(modsDir, mod.name);
-                            appendLog(`Downloading migrated mod: ${mod.name}`);
+                            const targetFolder = getMigrationFolderForProjectType(migratedItem.projectType);
+                            const destDir = path.join(dir, targetFolder);
+                            await fs.ensureDir(destDir);
+
+                            const fileName = migratedItem.update?.fileName || migratedItem.name;
+                            const fileUrl = migratedItem.update?.downloadUrl;
+                            const dest = path.join(destDir, fileName);
+
+                            appendLog(`Downloading migrated ${migratedItem.projectType}: ${fileName}`);
                             try {
-                                await downloadFile(mod.url, dest);
+                                await downloadFile(fileUrl, dest);
                             } catch (e) {
-                                appendLog(`Skipping mod ${mod.name} after failed retries: ${e.message}`);
+                                appendLog(`Skipping ${migratedItem.projectType} ${fileName} after failed retries: ${e.message}`);
                             }
                         }
                     }
@@ -3525,11 +3912,13 @@ module.exports = (ipcMain, win) => {
                 }
 
                 const destPath = path.join(instancesDir, newName);
+                let lastReportedProgress = 1;
                 await fs.copy(sourcePath, destPath, {
                     filter: (src) => {
                         copiedItems++;
                         const progress = Math.min(99, Math.floor((copiedItems / totalItems) * 99));
-                        if (win && win.webContents) {
+                        if (progress !== lastReportedProgress && win && win.webContents) {
+                            lastReportedProgress = progress;
                             win.webContents.send('install:progress', { instanceName: newName, progress, status: 'Duplicating...', type: 'duplicate' });
                         }
                         return true;
@@ -4041,6 +4430,39 @@ module.exports = (ipcMain, win) => {
             }
         });
 
+        ipcMain.handle('instance:migration-preview', async (_, instanceName, nextConfig) => {
+            try {
+                const configPath = path.join(instancesDir, instanceName, 'instance.json');
+                if (!await fs.pathExists(configPath)) throw new Error('Instance not found');
+
+                const currentConfig = await fs.readJson(configPath);
+                const safeNextConfig = sanitizeInstanceConfig(nextConfig);
+                const targetVersion = safeNextConfig.version || currentConfig.version;
+                const targetLoader = safeNextConfig.loader || currentConfig.loader;
+                const instanceDir = path.join(instancesDir, instanceName);
+
+                const plan = await buildMigrationPlan({
+                    instanceDir,
+                    targetVersion,
+                    targetLoader
+                });
+
+                return {
+                    success: true,
+                    summary: plan.summary,
+                    unresolved: plan.unresolved.map((item) => ({
+                        id: item.id,
+                        name: item.name,
+                        title: item.title,
+                        projectType: item.projectType,
+                        reason: item.reason
+                    }))
+                };
+            } catch (e) {
+                return { success: false, error: e.message };
+            }
+        });
+
         ipcMain.handle('instance:migrate', async (_, instanceName, newConfig) => {
             try {
                 console.log(`[Instance:Migrate] Starting migration for ${instanceName}`);
@@ -4048,6 +4470,9 @@ module.exports = (ipcMain, win) => {
                 if (!await fs.pathExists(configPath)) throw new Error('Instance not found');
 
                 const currentConfig = await fs.readJson(configPath);
+                const removeUnresolvedIds = Array.isArray(newConfig?.removeUnresolvedIds)
+                    ? newConfig.removeUnresolvedIds.map((entry) => String(entry || '').trim()).filter(Boolean)
+                    : [];
                 const safeNewConfig = sanitizeInstanceConfig(newConfig);
                 const finalConfig = { ...currentConfig, ...safeNewConfig, status: 'installing' };
                 await fs.writeJson(configPath, finalConfig, { spaces: 4 });
@@ -4057,7 +4482,9 @@ module.exports = (ipcMain, win) => {
                     win.webContents.send('install:progress', { instanceName, progress: 1, status: 'Starting migration...' });
                 }
 
-                startBackgroundInstall(instanceName, finalConfig, false, true).catch(e => {
+                startBackgroundInstall(instanceName, finalConfig, false, true, {
+                    removeUnresolvedIds
+                }).catch(e => {
                     console.error(`[Instance:Migrate] Background migration error for ${instanceName}:`, e);
                 });
 

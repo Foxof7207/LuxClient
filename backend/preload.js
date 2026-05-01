@@ -64,6 +64,7 @@ const electronAPI = {
     updateInstance: (name, config) => ipcRenderer.invoke('instance:update', name, config),
     updateInstanceConfig: (name, config) => ipcRenderer.invoke('instance:update', name, config),
     setInstanceFolderPath: (instanceRef, folderPath) => ipcRenderer.invoke('instance:set-folder-path', instanceRef, folderPath),
+    previewInstanceMigration: (name, config) => ipcRenderer.invoke('instance:migration-preview', name, config),
     migrateInstance: (name, config) => ipcRenderer.invoke('instance:migrate', name, config),
     reinstallInstance: (name, type) => ipcRenderer.invoke('instance:reinstall', name, type),
     deleteInstance: (name) => ipcRenderer.invoke('instance:delete', name),

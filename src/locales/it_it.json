@@ -874,7 +874,11 @@
             "game_version": "Versione Gioco",
             "mod_loader": "Mod Loader",
             "migrate_btn": "Migra & Aggiorna Mod",
-            "migrate_note": "Le mod esistenti verranno sostituite con versioni compatibili o rimosse se non trovate."
+            "migrate_note": "Le mod esistenti verranno sostituite con versioni compatibili o rimosse se non trovate.",
+            "migration_review_title": "Revisione migrazione",
+            "migration_review_desc": "Per alcuni elementi non e stato trovato un aggiornamento compatibile. Scegli quali eliminare prima di continuare la migrazione.",
+            "keep_all": "Mantieni tutto",
+            "delete_all": "Elimina tutto"
         },
         "window": {
             "title": "Impostazioni Finestra",

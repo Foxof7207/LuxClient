@@ -888,7 +888,11 @@
             "game_version": "Minecraft Version",
             "mod_loader": "Mod Loader",
             "migrate_btn": "Migrate & Update Mods",
-            "migrate_note": "Current mods will be replaced with versions that work, or removed if not available."
+            "migrate_note": "Current mods will be replaced with versions that work, or removed if not available.",
+            "migration_review_title": "Migration review",
+            "migration_review_desc": "No compatible update was found for some items. Choose which ones should be deleted before migration continues.",
+            "keep_all": "Keep all",
+            "delete_all": "Delete all"
         },
         "window": {
             "title": "Window Settings",
