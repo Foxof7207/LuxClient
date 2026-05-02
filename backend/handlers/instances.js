@@ -32,6 +32,252 @@ function normalizeFolderPathValue(value = '') {
     return segments.join('/');
 }
 
+function sanitizeActionLogToken(value, fallback = 'action') {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    return normalized || fallback;
+}
+
+function formatActionLogTimestamp(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+}
+
+async function writeInstanceActionLog(action, payload = {}) {
+    try {
+        const base = appData || app.getPath('userData');
+        const logDir = path.join(base, 'instance-action-logs');
+        await fs.ensureDir(logDir);
+
+        const now = new Date();
+        const actionToken = sanitizeActionLogToken(action, 'instance-action');
+        const instanceToken = sanitizeActionLogToken(payload.instanceName || payload.name || '', 'global');
+        const timestamp = formatActionLogTimestamp(now);
+        const fileName = `${actionToken}-${instanceToken}-${timestamp}.log`;
+        const filePath = path.join(logDir, fileName);
+
+        const content = {
+            action,
+            instanceName: payload.instanceName || payload.name || null,
+            createdAt: now.toISOString(),
+            details: payload
+        };
+
+        await fs.writeFile(filePath, JSON.stringify(content, null, 2), 'utf8');
+    } catch (error) {
+        console.warn('[Instances] Failed to write instance action log:', error.message);
+    }
+}
+
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+function crc32(buffer) {
+    let crc = -1;
+    for (let i = 0; i < buffer.length; i++) {
+        crc ^= buffer[i];
+        for (let j = 0; j < 8; j++) {
+            const mask = -(crc & 1);
+            crc = (crc >>> 1) ^ (0xEDB88320 & mask);
+        }
+    }
+    return (crc ^ -1) >>> 0;
+}
+
+function makePngChunk(type, data) {
+    const chunkType = Buffer.from(type, 'ascii');
+    const payload = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(payload.length, 0);
+    const crcBuffer = Buffer.concat([chunkType, payload]);
+    const crcValue = crc32(crcBuffer);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crcValue, 0);
+    return Buffer.concat([length, chunkType, payload, crc]);
+}
+
+async function recompressPngLossless(filePath) {
+    const original = await fs.readFile(filePath);
+    if (original.length < 12 || !original.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        return { success: false, reason: 'not-png' };
+    }
+
+    let offset = 8;
+    const rebuiltChunks = [];
+    const idatBuffers = [];
+    let hasIdat = false;
+
+    while (offset + 12 <= original.length) {
+        const length = original.readUInt32BE(offset);
+        offset += 4;
+
+        if (offset + 8 > original.length) break;
+
+        const type = original.subarray(offset, offset + 4).toString('ascii');
+        offset += 4;
+
+        if (offset + length + 4 > original.length) break;
+
+        const data = original.subarray(offset, offset + length);
+        offset += length;
+
+        const crc = original.subarray(offset, offset + 4);
+        offset += 4;
+
+        if (type === 'IDAT') {
+            hasIdat = true;
+            idatBuffers.push(Buffer.from(data));
+            continue;
+        }
+
+        if (type === 'IEND') {
+            break;
+        }
+
+        rebuiltChunks.push(Buffer.concat([
+            Buffer.from([0, 0, 0, 0]),
+            Buffer.from(type, 'ascii'),
+            Buffer.from(data),
+            Buffer.from(crc)
+        ]));
+        rebuiltChunks[rebuiltChunks.length - 1].writeUInt32BE(data.length, 0);
+    }
+
+    if (!hasIdat) {
+        return { success: false, reason: 'missing-idat' };
+    }
+
+    const idatData = Buffer.concat(idatBuffers);
+    const inflated = zlib.inflateSync(idatData);
+    const recompressed = zlib.deflateSync(inflated, { level: 9 });
+
+    const finalChunks = [];
+    for (const chunk of rebuiltChunks) {
+        finalChunks.push(chunk);
+    }
+    finalChunks.push(makePngChunk('IDAT', recompressed));
+    finalChunks.push(makePngChunk('IEND', Buffer.alloc(0)));
+
+    const rebuilt = Buffer.concat([PNG_SIGNATURE, ...finalChunks]);
+
+    if (rebuilt.length >= original.length) {
+        return {
+            success: true,
+            changed: false,
+            beforeBytes: original.length,
+            afterBytes: original.length,
+            savedBytes: 0
+        };
+    }
+
+    await fs.writeFile(filePath, rebuilt);
+    return {
+        success: true,
+        changed: true,
+        beforeBytes: original.length,
+        afterBytes: rebuilt.length,
+        savedBytes: original.length - rebuilt.length
+    };
+}
+
+function getPackJunkReason(fileName) {
+    const lower = String(fileName || '').toLowerCase();
+    if (!lower) return null;
+    if (lower === '.ds_store' || lower === 'thumbs.db' || lower === 'desktop.ini') return 'os-metadata';
+    if (lower.endsWith('.psd') || lower.endsWith('.xcf') || lower.endsWith('.kra') || lower.endsWith('.clip')) return 'source-file';
+    if (lower.endsWith('.bak') || lower.endsWith('.tmp')) return 'temporary-file';
+    return null;
+}
+
+function normalizeTargetLoaderForTools(targetLoader, projectType) {
+    if (isVisualMigrationProjectType(projectType)) return 'vanilla';
+    return String(targetLoader || 'vanilla').trim().toLowerCase() || 'vanilla';
+}
+
+function normalizeProjectIdForComparison(projectId) {
+    const raw = String(projectId || '').trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.startsWith('modrinth:') || raw.startsWith('curseforge:')) return raw;
+    if (/^\d+$/.test(raw)) return `curseforge:${raw}`;
+    return `modrinth:${raw}`;
+}
+
+function parseNbtLong(value) {
+    if (typeof value === 'bigint') return Number(value);
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (Array.isArray(value) && value.length >= 2) {
+        const hi = Number(value[0] || 0);
+        const lo = Number(value[1] || 0) >>> 0;
+        return hi * 4294967296 + lo;
+    }
+    if (value && typeof value === 'object') {
+        if (typeof value.low === 'number' && typeof value.high === 'number') {
+            return (Number(value.high) * 4294967296) + (Number(value.low) >>> 0);
+        }
+        if (typeof value.value === 'number') return value.value;
+    }
+    return null;
+}
+
+function extractSeedFromLevelDat(data) {
+    const randomSeed = parseNbtLong(data?.RandomSeed?.value);
+    if (Number.isFinite(randomSeed)) return randomSeed;
+
+    const worldGenSettings = data?.WorldGenSettings?.value;
+    const worldSeed = parseNbtLong(worldGenSettings?.seed?.value);
+    if (Number.isFinite(worldSeed)) return worldSeed;
+
+    return null;
+}
+
+async function listFilesRecursive(baseDir) {
+    const files = [];
+    const stack = [baseDir];
+
+    while (stack.length > 0) {
+        const current = stack.pop();
+        let entries = [];
+        try {
+            entries = await fs.readdir(current, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            const absolute = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                stack.push(absolute);
+            } else if (entry.isFile()) {
+                files.push(absolute);
+            }
+        }
+    }
+
+    return files;
+}
+
+function toRelativePackPath(baseDir, absolutePath) {
+    const rel = path.relative(baseDir, absolutePath);
+    return rel.split(path.sep).join('/');
+}
+
+function normalizeWorldFolderName(name, fallback = 'WorldClone') {
+    const normalized = String(name || '')
+        .trim()
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/\.+$/, '')
+        .replace(/\s+/g, ' ');
+    return normalized || fallback;
+}
+
 function getInstanceFolderMetaPath() {
     const base = appData || app.getPath('userData');
     return path.join(base, 'instance_folder_meta.json');
@@ -904,6 +1150,47 @@ async function getMergedInstances() {
     return Array.from(instancesByName.values());
 }
 
+let mergedInstancesCache = [];
+let mergedInstancesCacheAt = 0;
+let mergedInstancesRefreshPromise = null;
+const MERGED_INSTANCES_CACHE_TTL_MS = 4000;
+
+function getCachedMergedInstances() {
+    return Array.isArray(mergedInstancesCache) ? [...mergedInstancesCache] : [];
+}
+
+function setCachedMergedInstances(instances) {
+    mergedInstancesCache = Array.isArray(instances) ? [...instances] : [];
+    mergedInstancesCacheAt = Date.now();
+}
+
+function invalidateMergedInstancesCache() {
+    mergedInstancesCacheAt = 0;
+}
+
+async function refreshMergedInstancesCache(force = false) {
+    const isFresh = (Date.now() - mergedInstancesCacheAt) < MERGED_INSTANCES_CACHE_TTL_MS;
+    if (!force && isFresh && mergedInstancesCache.length > 0) {
+        return getCachedMergedInstances();
+    }
+
+    if (mergedInstancesRefreshPromise) {
+        return mergedInstancesRefreshPromise;
+    }
+
+    mergedInstancesRefreshPromise = (async () => {
+        const merged = await getMergedInstances();
+        setCachedMergedInstances(merged);
+        return getCachedMergedInstances();
+    })();
+
+    try {
+        return await mergedInstancesRefreshPromise;
+    } finally {
+        mergedInstancesRefreshPromise = null;
+    }
+}
+
 async function calculateSha1(filePath) {
     return new Promise((resolve, reject) => {
         const hash = crypto.createHash('sha1');
@@ -1370,6 +1657,9 @@ const buildMigrationPlan = async ({ instanceDir, targetVersion, targetLoader }) 
                 title: entry.title || entry.name,
                 sourcePath: entry.path,
                 targetFolder: entry.folder,
+                projectId: entry.projectId || null,
+                versionId: entry.versionId || null,
+                source: entry.source || null,
                 update: resolved.update
             });
             continue;
@@ -1901,6 +2191,35 @@ function sanitizeInstanceConfig(config) {
         }
     }
     return cleanConfig;
+}
+
+const BUSY_FS_ERROR_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+
+function isBusyFsError(error) {
+    if (!error) return false;
+    if (BUSY_FS_ERROR_CODES.has(String(error.code || '').toUpperCase())) return true;
+    const message = String(error.message || '').toLowerCase();
+    return message.includes('resource busy') || message.includes('locked');
+}
+
+async function waitMs(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withBusyFsRetry(action, maxAttempts = 6, baseDelayMs = 120) {
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+        try {
+            return await action();
+        } catch (error) {
+            attempt += 1;
+            if (!isBusyFsError(error) || attempt >= maxAttempts) {
+                throw error;
+            }
+            const delay = baseDelayMs * attempt;
+            await waitMs(delay);
+        }
+    }
 }
 
 module.exports = (ipcMain, win) => {
@@ -2602,6 +2921,14 @@ module.exports = (ipcMain, win) => {
                     created: Date.now()
                 };
 
+                await writeInstanceActionLog('import-mrpack-instance', {
+                    instanceName,
+                    sourcePath: packPath,
+                    version: mcVersion,
+                    loader: loaderType,
+                    loaderVersion
+                });
+
                 if (iconUrl) {
                     const cachedIcon = await downloadAndCacheIcon(iconUrl);
                     if (cachedIcon) {
@@ -2763,6 +3090,14 @@ module.exports = (ipcMain, win) => {
                     created: Date.now()
                 };
 
+                await writeInstanceActionLog('import-curseforge-instance', {
+                    instanceName,
+                    sourcePath: packPath,
+                    version: mcVersion,
+                    loader: loaderType,
+                    loaderVersion
+                });
+
                 const controller = new AbortController();
                 const signal = controller.signal;
 
@@ -2895,10 +3230,17 @@ module.exports = (ipcMain, win) => {
 
                 const packPath = filePaths[0];
                 const ext = path.extname(packPath).toLowerCase();
+                await writeInstanceActionLog('import-file-selected', {
+                    sourcePath: packPath,
+                    extension: ext
+                });
 
                 const zip = new AdmZip(packPath);
 
                 if (ext === '.mrpack' || zip.getEntry('modrinth.index.json')) {
+                    await writeInstanceActionLog('import-mrpack', {
+                        sourcePath: packPath
+                    });
                     return await installMrPack(packPath);
                 } else if (ext === '.mcpack' || zip.getEntry('instance.json')) {
                     const instanceJsonEntry = zip.getEntry('instance.json');
@@ -2923,8 +3265,17 @@ module.exports = (ipcMain, win) => {
                     startBackgroundInstall(instanceName, instanceConfig, false, false).catch(err => {
                         console.error('[Import:MCPack] Background install failed:', err);
                     });
+                    await writeInstanceActionLog('import-mcpack', {
+                        instanceName,
+                        sourcePath: packPath,
+                        version: instanceConfig.version,
+                        loader: instanceConfig.loader
+                    });
                     return { success: true, instanceName };
                 } else if (zip.getEntry('manifest.json')) {
+                    await writeInstanceActionLog('import-curseforge-pack', {
+                        sourcePath: packPath
+                    });
                     return await installCurseForgePack(packPath);
                 } else {
                     return { success: false, error: 'Unrecognized modpack format' };
@@ -3145,10 +3496,18 @@ module.exports = (ipcMain, win) => {
         });
         ipcMain.handle('instance:get-all', async () => {
             try {
-                return await getMergedInstances();
+                if (mergedInstancesCache.length > 0) {
+                    // Return immediately to keep UI responsive while refreshing in background.
+                    refreshMergedInstancesCache(false).catch((error) => {
+                        console.error('Failed to refresh cached instances:', error);
+                    });
+                    return getCachedMergedInstances();
+                }
+
+                return await refreshMergedInstancesCache(true);
             } catch (e) {
                 console.error('Failed to list instances:', e);
-                return [];
+                return getCachedMergedInstances();
             }
         });
 
@@ -3587,6 +3946,14 @@ module.exports = (ipcMain, win) => {
 
                 await fs.writeJson(path.join(dir, 'instance.json'), config, { spaces: 4 });
                 await fs.writeFile(path.join(dir, 'playtime.txt'), '0');
+                await writeInstanceActionLog('create-instance', {
+                    instanceName: finalName,
+                    requestedName: name,
+                    version,
+                    loader,
+                    loaderVersion,
+                    folderPath: folderPath || null
+                });
                 console.log(`[Instance Create] Sending installing status for ${finalName}`);
                 if (win && win.webContents) {
                     win.webContents.send('instance:status', { instanceName: finalName, status: 'installing' });
@@ -3611,6 +3978,10 @@ module.exports = (ipcMain, win) => {
         ipcMain.handle('instance:reinstall', async (_, instanceName, type = 'soft') => {
             try {
                 console.log(`[Instance Reinstall] ${instanceName}, type: ${type}`);
+                await writeInstanceActionLog('reinstall-instance', {
+                    instanceName,
+                    reinstallType: type
+                });
                 const dir = path.join(instancesDir, instanceName);
                 if (!await fs.pathExists(dir)) return { success: false, error: 'Instance not found' };
 
@@ -3774,11 +4145,15 @@ module.exports = (ipcMain, win) => {
                     const current = await fs.readJson(configPath);
                     const safeNewConfig = sanitizeInstanceConfig(newConfig);
                     const updated = { ...current, ...safeNewConfig };
-                    await fs.writeJson(configPath, updated, { spaces: 4 });
+                    await withBusyFsRetry(() => fs.writeJson(configPath, updated, { spaces: 4 }));
+                    invalidateMergedInstancesCache();
                     return { success: true };
                 }
                 return { success: false, error: 'Instance not found' };
             } catch (e) {
+                if (isBusyFsError(e)) {
+                    return { success: false, error: 'Instance files are currently busy/locked. Please wait until startup is finished and try again.' };
+                }
                 return { success: false, error: e.message };
             }
         });
@@ -3798,7 +4173,8 @@ module.exports = (ipcMain, win) => {
                     } else {
                         delete current.folderPath;
                     }
-                    await fs.writeJson(localConfigPath, current, { spaces: 4 });
+                    await withBusyFsRetry(() => fs.writeJson(localConfigPath, current, { spaces: 4 }));
+                    invalidateMergedInstancesCache();
                     return { success: true, mode: 'local-config' };
                 }
 
@@ -3815,8 +4191,12 @@ module.exports = (ipcMain, win) => {
                 }
 
                 await writeInstanceFolderMeta(meta);
+                invalidateMergedInstancesCache();
                 return { success: true, mode: 'dashboard-meta' };
             } catch (e) {
+                if (isBusyFsError(e)) {
+                    return { success: false, error: 'Instance files are currently busy/locked. Please wait until startup is finished and try again.' };
+                }
                 return { success: false, error: e.message };
             }
         });
@@ -3852,7 +4232,7 @@ module.exports = (ipcMain, win) => {
                     return { success: false, error: 'An instance with that name already exists' };
                 }
 
-                await fs.rename(oldPath, newPath);
+                await withBusyFsRetry(() => fs.rename(oldPath, newPath));
 
                 let configPath = path.join(newPath, 'instance.json');
                 if (!await fs.pathExists(configPath)) {
@@ -3870,11 +4250,16 @@ module.exports = (ipcMain, win) => {
                     const rawConfig = await fs.readJson(configPath);
                     const config = sanitizeInstanceConfig(rawConfig);
                     config.name = trimmedNewName;
-                    await fs.writeJson(configPath, config, { spaces: 4 });
+                    await withBusyFsRetry(() => fs.writeJson(configPath, config, { spaces: 4 }));
                 }
+
+                invalidateMergedInstancesCache();
 
                 return { success: true };
             } catch (e) {
+                if (isBusyFsError(e)) {
+                    return { success: false, error: 'Could not rename instance because files are busy/locked. Stop the instance and try again.' };
+                }
                 return { success: false, error: e.message };
             }
         });
@@ -3935,6 +4320,8 @@ module.exports = (ipcMain, win) => {
                     config.lastPlayed = null;
                     await fs.writeJson(configPath, config, { spaces: 4 });
                 }
+
+                invalidateMergedInstancesCache();
 
                 if (win && win.webContents) {
                     win.webContents.send('install:progress', { instanceName: newName, progress: 100, status: 'Done', type: 'duplicate' });
@@ -4046,6 +4433,7 @@ module.exports = (ipcMain, win) => {
                     }
                 }
                 win.webContents.send('instance:status', { instanceName: name, status: 'deleted' });
+                invalidateMergedInstancesCache();
 
                 return { success: true };
             } catch (e) {
@@ -4412,6 +4800,11 @@ module.exports = (ipcMain, win) => {
             console.log(`[Modpack:Install] ICON_URL: ${iconUrl}`);
             console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
             try {
+                await writeInstanceActionLog('install-modpack-url', {
+                    instanceName: name,
+                    url,
+                    iconUrl: iconUrl || null
+                });
                 const tempPath = path.join(os.tmpdir(), `lux-modpack-${Date.now()}.mrpack`);
                 if (win && win.webContents) {
                     win.webContents.send('install:progress', { instanceName: name, progress: 1, status: 'Downloading Modpack...' });
@@ -4476,6 +4869,14 @@ module.exports = (ipcMain, win) => {
                 const safeNewConfig = sanitizeInstanceConfig(newConfig);
                 const finalConfig = { ...currentConfig, ...safeNewConfig, status: 'installing' };
                 await fs.writeJson(configPath, finalConfig, { spaces: 4 });
+                await writeInstanceActionLog('migrate-instance', {
+                    instanceName,
+                    fromVersion: currentConfig.version,
+                    fromLoader: currentConfig.loader,
+                    toVersion: finalConfig.version,
+                    toLoader: finalConfig.loader,
+                    removeUnresolvedIds
+                });
 
                 if (win && win.webContents) {
                     win.webContents.send('instance:status', { instanceName, status: 'installing' });
@@ -4652,6 +5053,470 @@ module.exports = (ipcMain, win) => {
             } catch (e) {
                 console.error('Update failed:', e);
                 return { success: false, error: e.message };
+            }
+        });
+
+        ipcMain.handle('tools:compatibility-scan', async (_, instanceName, targetVersion, targetLoader) => {
+            const sendLog = (msg) => {
+                if (win && win.webContents) win.webContents.send('tools:compatibility-log', { msg });
+            };
+            try {
+                sendLog(`[Scan] Instance: "${instanceName}"`);
+                sendLog(`[Scan] Target: ${targetLoader} ${targetVersion}`);
+
+                const { baseDir } = await resolveInstanceBaseDir(instanceName);
+                if (!baseDir || !await fs.pathExists(baseDir)) {
+                    sendLog('[Scan] ERROR: Instance directory not found');
+                    return { success: false, error: 'Instance not found' };
+                }
+                sendLog(`[Scan] Instance directory resolved: ${baseDir}`);
+                sendLog('[Scan] Building migration plan — fetching mod metadata…');
+
+                const plan = await buildMigrationPlan({
+                    instanceDir: baseDir,
+                    targetVersion,
+                    targetLoader
+                });
+
+                sendLog(`[Scan] Plan ready — ${plan.updates.length} entries resolvable, ${plan.unresolved.length} unresolved`);
+                sendLog('[Scan] Analysing entries…');
+
+                const detailed = [];
+                for (const updateEntry of plan.updates) {
+                    const currentProjectId = normalizeProjectIdForComparison(updateEntry?.projectId);
+                    const nextProjectId = normalizeProjectIdForComparison(updateEntry?.update?.projectId);
+                    const sameProject = currentProjectId && nextProjectId && currentProjectId === nextProjectId;
+                    const sameVersion = String(updateEntry?.versionId || '').trim() !== ''
+                        && String(updateEntry?.update?.versionId || '').trim() !== ''
+                        && String(updateEntry.versionId).trim() === String(updateEntry.update.versionId).trim();
+
+                    let status = 'update_available';
+                    if (sameProject && sameVersion) status = 'compatible';
+                    else if (!sameProject && nextProjectId) status = 'replaced_by_other_project';
+
+                    const label = updateEntry.title || updateEntry.name || updateEntry.id || '(unknown)';
+                    if (status === 'compatible') {
+                        sendLog(`  ✓  ${label} — already compatible with ${targetLoader} ${targetVersion}`);
+                    } else if (status === 'update_available') {
+                        const nextLabel = updateEntry.update?.versionLabel || updateEntry.update?.fileName || updateEntry.update?.versionId || '?';
+                        sendLog(`  ↑  ${label} — update available → ${nextLabel}`);
+                    } else if (status === 'replaced_by_other_project') {
+                        const replaceName = updateEntry.update?.title || updateEntry.update?.name || updateEntry.update?.projectId || '?';
+                        sendLog(`  ⇄  ${label} — replaced by different project: ${replaceName}`);
+                    }
+
+                    detailed.push({
+                        id: updateEntry.id,
+                        name: updateEntry.name,
+                        title: updateEntry.title,
+                        projectType: updateEntry.projectType,
+                        status,
+                        currentProjectId: updateEntry.projectId || null,
+                        currentVersionId: updateEntry.versionId || null,
+                        nextProjectId: updateEntry.update?.projectId || null,
+                        nextVersionId: updateEntry.update?.versionId || null,
+                        nextVersionLabel: updateEntry.update?.versionLabel || null,
+                        nextFileName: updateEntry.update?.fileName || null
+                    });
+                }
+
+                for (const unresolved of plan.unresolved) {
+                    const label = unresolved.title || unresolved.name || unresolved.id || '(unknown)';
+                    sendLog(`  ✗  ${label} — no compatible version found (${unresolved.reason || 'not-found'})`);
+                    detailed.push({
+                        id: unresolved.id,
+                        name: unresolved.name,
+                        title: unresolved.title,
+                        projectType: unresolved.projectType,
+                        status: 'no_match',
+                        reason: unresolved.reason || 'not-found'
+                    });
+                }
+
+                const summary = {
+                    total: detailed.length,
+                    compatible: detailed.filter((item) => item.status === 'compatible').length,
+                    updateAvailable: detailed.filter((item) => item.status === 'update_available').length,
+                    replaced: detailed.filter((item) => item.status === 'replaced_by_other_project').length,
+                    noMatch: detailed.filter((item) => item.status === 'no_match').length
+                };
+
+                sendLog(`[Scan] Done — Total: ${summary.total}  Compatible: ${summary.compatible}  Updates: ${summary.updateAvailable}  Replaced: ${summary.replaced}  No match: ${summary.noMatch}`);
+                return { success: true, summary, items: detailed };
+            } catch (error) {
+                sendLog(`[Scan] ERROR: ${error.message}`);
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:compatibility-apply', async (_, instanceName, targetVersion, targetLoader, options = {}) => {
+            try {
+                const configPath = path.join(instancesDir, instanceName, 'instance.json');
+                if (!await fs.pathExists(configPath)) {
+                    return { success: false, error: 'Instance not found' };
+                }
+
+                const currentConfig = await fs.readJson(configPath);
+                const plan = await buildMigrationPlan({
+                    instanceDir: path.join(instancesDir, instanceName),
+                    targetVersion,
+                    targetLoader
+                });
+
+                const removeNoMatch = Boolean(options?.removeNoMatch);
+                const removeUnresolvedIds = removeNoMatch ? plan.unresolved.map((entry) => entry.id) : [];
+
+                const nextConfig = {
+                    ...currentConfig,
+                    version: targetVersion || currentConfig.version,
+                    loader: targetLoader || currentConfig.loader,
+                    status: 'installing'
+                };
+
+                await fs.writeJson(configPath, nextConfig, { spaces: 4 });
+                await writeInstanceActionLog('tools-compatibility-apply', {
+                    instanceName,
+                    fromVersion: currentConfig.version,
+                    fromLoader: currentConfig.loader,
+                    toVersion: nextConfig.version,
+                    toLoader: nextConfig.loader,
+                    removeNoMatch,
+                    unresolvedCount: plan.unresolved.length
+                });
+
+                if (win && win.webContents) {
+                    win.webContents.send('instance:status', { instanceName, status: 'installing' });
+                    win.webContents.send('install:progress', {
+                        instanceName,
+                        progress: 1,
+                        status: 'Applying compatibility fixes...'
+                    });
+                }
+
+                startBackgroundInstall(instanceName, nextConfig, false, true, {
+                    removeUnresolvedIds
+                }).catch((error) => {
+                    console.error('[Tools] Compatibility apply failed:', error);
+                });
+
+                return {
+                    success: true,
+                    summary: {
+                        updatable: plan.updates.length,
+                        unresolved: plan.unresolved.length,
+                        removedUnresolved: removeUnresolvedIds.length
+                    }
+                };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:world-manager-list', async (_, instanceName) => {
+            try {
+                const { baseDir } = await resolveInstanceBaseDir(instanceName);
+                if (!baseDir || !await fs.pathExists(baseDir)) {
+                    return { success: false, error: 'Instance not found' };
+                }
+
+                const savesDir = path.join(baseDir, 'saves');
+                if (!await fs.pathExists(savesDir)) {
+                    return { success: true, worlds: [] };
+                }
+
+                const worlds = [];
+                const entries = await fs.readdir(savesDir, { withFileTypes: true });
+
+                for (const entry of entries) {
+                    if (!entry.isDirectory()) continue;
+
+                    const worldDir = path.join(savesDir, entry.name);
+                    const levelDatPath = path.join(worldDir, 'level.dat');
+                    const regionDir = path.join(worldDir, 'region');
+
+                    let lastPlayed = 0;
+                    let worldName = entry.name;
+                    let seed = null;
+                    let size = 0;
+
+                    try {
+                        const stats = await fs.stat(worldDir);
+                        lastPlayed = stats.mtimeMs;
+                    } catch {
+                        lastPlayed = Date.now();
+                    }
+
+                    try {
+                        size = await getFolderSize(worldDir);
+                    } catch {
+                        size = 0;
+                    }
+
+                    const issues = [];
+                    if (!await fs.pathExists(levelDatPath)) {
+                        issues.push({ type: 'missing-leveldat', message: 'level.dat missing' });
+                    } else {
+                        try {
+                            const buffer = await fs.readFile(levelDatPath);
+                            const { parsed } = await nbt.parse(buffer);
+                            const data = parsed?.value?.Data?.value || {};
+                            worldName = data?.LevelName?.value || worldName;
+                            const parsedSeed = extractSeedFromLevelDat(data);
+                            if (Number.isFinite(parsedSeed)) seed = parsedSeed;
+                            const parsedLastPlayed = parseNbtLong(data?.LastPlayed?.value);
+                            if (Number.isFinite(parsedLastPlayed) && parsedLastPlayed > 0) {
+                                lastPlayed = parsedLastPlayed;
+                            }
+                        } catch (error) {
+                            issues.push({ type: 'invalid-leveldat', message: `Failed to parse level.dat: ${error.message}` });
+                        }
+                    }
+
+                    if (await fs.pathExists(regionDir)) {
+                        let regionFiles = [];
+                        try {
+                            regionFiles = (await fs.readdir(regionDir)).filter((name) => name.endsWith('.mca'));
+                        } catch {
+                            regionFiles = [];
+                        }
+
+                        for (const regionFile of regionFiles) {
+                            const regionPath = path.join(regionDir, regionFile);
+                            try {
+                                const stats = await fs.stat(regionPath);
+                                if (stats.size < 8192) {
+                                    issues.push({ type: 'corrupt-region', file: regionFile, message: 'Region header too small (<8192 bytes)' });
+                                }
+                            } catch (error) {
+                                issues.push({ type: 'missing-region', file: regionFile, message: `Failed to read region file: ${error.message}` });
+                            }
+                        }
+                    } else {
+                        issues.push({ type: 'missing-region-dir', message: 'region folder missing' });
+                    }
+
+                    worlds.push({
+                        folderName: entry.name,
+                        name: worldName,
+                        size,
+                        lastPlayed,
+                        seed,
+                        health: issues.length === 0 ? 'ok' : 'warning',
+                        issues
+                    });
+                }
+
+                worlds.sort((a, b) => b.lastPlayed - a.lastPlayed);
+                return { success: true, worlds };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:world-safe-clone', async (_, sourceInstance, worldFolderName, targetInstance, nextWorldName = '') => {
+            try {
+                const sourcePath = path.join(instancesDir, sourceInstance, 'saves', worldFolderName);
+                if (!await fs.pathExists(sourcePath)) {
+                    return { success: false, error: 'Source world not found' };
+                }
+
+                const targetSavesDir = path.join(instancesDir, targetInstance, 'saves');
+                await fs.ensureDir(targetSavesDir);
+
+                const baseName = normalizeWorldFolderName(nextWorldName || worldFolderName, 'WorldClone');
+                let finalName = baseName;
+                let targetPath = path.join(targetSavesDir, finalName);
+                let counter = 1;
+                while (await fs.pathExists(targetPath)) {
+                    finalName = `${baseName} (${counter++})`;
+                    targetPath = path.join(targetSavesDir, finalName);
+                }
+
+                await fs.copy(sourcePath, targetPath);
+
+                await writeInstanceActionLog('world-safe-clone', {
+                    instanceName: sourceInstance,
+                    sourceInstance,
+                    worldFolderName,
+                    targetInstance,
+                    clonedWorldName: finalName
+                });
+
+                return { success: true, clonedWorldName: finalName };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:resourcepack-report', async (_, instanceName) => {
+            try {
+                const packsDir = path.join(instancesDir, instanceName, 'resourcepacks');
+                if (!await fs.pathExists(packsDir)) {
+                    return { success: true, packs: [] };
+                }
+
+                const entries = await fs.readdir(packsDir, { withFileTypes: true });
+                const reports = [];
+
+                for (const entry of entries) {
+                    const absolute = path.join(packsDir, entry.name);
+                    if (!(entry.isDirectory() || /\.(zip|rar)$/i.test(entry.name))) continue;
+
+                    const report = {
+                        packName: entry.name,
+                        isDirectory: entry.isDirectory(),
+                        totalFiles: 0,
+                        pngFiles: 0,
+                        junkFiles: [],
+                        bytes: 0
+                    };
+
+                    if (entry.isDirectory()) {
+                        const files = await listFilesRecursive(absolute);
+                        report.totalFiles = files.length;
+                        for (const filePath of files) {
+                            const rel = toRelativePackPath(absolute, filePath);
+                            const lower = rel.toLowerCase();
+                            const stats = await fs.stat(filePath).catch(() => null);
+                            if (stats) report.bytes += stats.size;
+                            if (lower.endsWith('.png')) report.pngFiles += 1;
+                            const junkReason = getPackJunkReason(path.basename(rel));
+                            if (junkReason) {
+                                report.junkFiles.push({ path: rel, reason: junkReason });
+                            }
+                        }
+                    } else {
+                        const zip = new AdmZip(absolute);
+                        const zipEntries = zip.getEntries().filter((zipEntry) => !zipEntry.isDirectory);
+                        report.totalFiles = zipEntries.length;
+                        for (const zipEntry of zipEntries) {
+                            const rel = zipEntry.entryName;
+                            const lower = rel.toLowerCase();
+                            report.bytes += zipEntry.header.size || 0;
+                            if (lower.endsWith('.png')) report.pngFiles += 1;
+                            const junkReason = getPackJunkReason(path.basename(rel));
+                            if (junkReason) {
+                                report.junkFiles.push({ path: rel, reason: junkReason });
+                            }
+                        }
+                    }
+
+                    reports.push(report);
+                }
+
+                return { success: true, packs: reports };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:resourcepack-cleanup', async (_, instanceName, packName) => {
+            try {
+                const packsDir = path.join(instancesDir, instanceName, 'resourcepacks');
+                const packPath = path.join(packsDir, packName);
+                if (!await fs.pathExists(packPath)) {
+                    return { success: false, error: 'Resource pack not found' };
+                }
+
+                const stats = await fs.stat(packPath);
+                const isZip = !stats.isDirectory();
+                let workDir = packPath;
+                const tempDir = isZip ? path.join(packsDir, `__tmp_cleanup_${Date.now()}`) : null;
+
+                if (isZip) {
+                    const zip = new AdmZip(packPath);
+                    zip.extractAllTo(tempDir, true);
+                    workDir = tempDir;
+                }
+
+                const files = await listFilesRecursive(workDir);
+                let removed = 0;
+                for (const filePath of files) {
+                    const junkReason = getPackJunkReason(path.basename(filePath));
+                    if (!junkReason) continue;
+                    await fs.remove(filePath);
+                    removed += 1;
+                }
+
+                if (isZip && tempDir) {
+                    const newZip = new AdmZip();
+                    const cleaned = await listFilesRecursive(workDir);
+                    for (const f of cleaned) {
+                        const rel = path.relative(workDir, f);
+                        newZip.addFile(rel.replace(/\\/g, '/'), await fs.readFile(f));
+                    }
+                    newZip.writeZip(packPath);
+                    await fs.remove(tempDir);
+                }
+
+                await writeInstanceActionLog('resourcepack-cleanup', {
+                    instanceName,
+                    packName,
+                    removedFiles: removed
+                });
+
+                return { success: true, removedFiles: removed };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle('tools:resourcepack-compress-png', async (_, instanceName, packName) => {
+            try {
+                const packsDir = path.join(instancesDir, instanceName, 'resourcepacks');
+                const packPath = path.join(packsDir, packName);
+                if (!await fs.pathExists(packPath)) {
+                    return { success: false, error: 'Resource pack not found' };
+                }
+
+                const stats = await fs.stat(packPath);
+                const isZip = !stats.isDirectory();
+                let workDir = packPath;
+                const tempDir = isZip ? path.join(packsDir, `__tmp_compress_${Date.now()}`) : null;
+
+                if (isZip) {
+                    const zip = new AdmZip(packPath);
+                    zip.extractAllTo(tempDir, true);
+                    workDir = tempDir;
+                }
+
+                const files = await listFilesRecursive(workDir);
+                const pngFiles = files.filter((filePath) => filePath.toLowerCase().endsWith('.png'));
+                let scanned = 0;
+                let changed = 0;
+                let savedBytes = 0;
+
+                for (const pngPath of pngFiles) {
+                    const result = await recompressPngLossless(pngPath).catch(() => ({ success: false, changed: false, savedBytes: 0 }));
+                    scanned += 1;
+                    if (result?.success && result?.changed) {
+                        changed += 1;
+                        savedBytes += Number(result.savedBytes || 0);
+                    }
+                }
+
+                if (isZip && tempDir) {
+                    const newZip = new AdmZip();
+                    const allFiles = await listFilesRecursive(workDir);
+                    for (const f of allFiles) {
+                        const rel = path.relative(workDir, f);
+                        newZip.addFile(rel.replace(/\\/g, '/'), await fs.readFile(f));
+                    }
+                    newZip.writeZip(packPath);
+                    await fs.remove(tempDir);
+                }
+
+                await writeInstanceActionLog('resourcepack-compress-png', {
+                    instanceName,
+                    packName,
+                    scanned,
+                    changed,
+                    savedBytes
+                });
+
+                return { success: true, scanned, changed, savedBytes };
+            } catch (error) {
+                return { success: false, error: error.message };
             }
         });
 

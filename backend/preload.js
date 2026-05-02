@@ -347,6 +347,14 @@ const electronAPI = {
     restoreLocalBackup: (instanceName, backupFileName) => ipcRenderer.invoke('instance:restore-local-backup', instanceName, backupFileName),
     removeFile: (filePath) => ipcRenderer.invoke('instance:remove-file', filePath),
 
+    toolsScanCompatibility: (instanceName, targetVersion, targetLoader) => ipcRenderer.invoke('tools:compatibility-scan', instanceName, targetVersion, targetLoader),
+    toolsApplyCompatibility: (instanceName, targetVersion, targetLoader, options) => ipcRenderer.invoke('tools:compatibility-apply', instanceName, targetVersion, targetLoader, options),
+    toolsListWorlds: (instanceName) => ipcRenderer.invoke('tools:world-manager-list', instanceName),
+    toolsSafeCloneWorld: (sourceInstance, worldFolderName, targetInstance, newWorldName) => ipcRenderer.invoke('tools:world-safe-clone', sourceInstance, worldFolderName, targetInstance, newWorldName),
+    toolsResourcepackReport: (instanceName) => ipcRenderer.invoke('tools:resourcepack-report', instanceName),
+    toolsResourcepackCleanup: (instanceName, packName) => ipcRenderer.invoke('tools:resourcepack-cleanup', instanceName, packName),
+    toolsResourcepackCompressPng: (instanceName, packName) => ipcRenderer.invoke('tools:resourcepack-compress-png', instanceName, packName),
+
     checkForUpdates: () => ipcRenderer.invoke('updater:check'),
     downloadUpdate: (url, name) => ipcRenderer.invoke('updater:download', url, name),
     installUpdate: (path) => ipcRenderer.invoke('updater:install', path),
@@ -355,6 +363,11 @@ const electronAPI = {
         const subscription = (_event, value) => callback(value);
         ipcRenderer.on('updater:progress', subscription);
         return () => ipcRenderer.removeListener('updater:progress', subscription);
+    },
+    onCompatibilityLog: (callback) => {
+        const subscription = (_event, value) => callback(value);
+        ipcRenderer.on('tools:compatibility-log', subscription);
+        return () => ipcRenderer.removeListener('tools:compatibility-log', subscription);
     },
     onCrashReport: (callback) => {
         const subscription = (_event, value) => callback(value);

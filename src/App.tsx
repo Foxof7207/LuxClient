@@ -890,9 +890,7 @@ function App() {
     };
 
     const handleNavigate = (viewId) => {
-        startTransition(() => {
-            setCurrentView(viewId);
-        });
+        setCurrentView(viewId);
     };
 
     const handleHistoryNavigate = (direction: 'back' | 'forward') => {
@@ -1223,7 +1221,7 @@ function App() {
                     <div className="flex flex-1 overflow-hidden relative z-10">
                         <AppSidebar
                             currentView={currentView}
-                            setView={(view) => startTransition(() => setCurrentView(view))}
+                            setView={(view) => setCurrentView(view)}
                             currentMode={currentMode}
                             onLogout={handleLogout}
                             onInstanceClick={handleInstanceClick}

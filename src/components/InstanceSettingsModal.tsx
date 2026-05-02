@@ -6,7 +6,7 @@ import ConfirmationModal from './ConfirmationModal';
 import Dropdown from './Dropdown';
 import ToggleBox from './ToggleBox';
 
-function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
+function InstanceSettingsModal({ instance, instanceStatus, onClose, onSave, onDelete }) {
     const { t } = useTranslation();
     const { addNotification } = useNotification();
     const [activeTab, setActiveTab] = useState('general');
@@ -22,6 +22,7 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
     const [migrationPreview, setMigrationPreview] = useState<any>(null);
     const [migrationSelection, setMigrationSelection] = useState<Record<string, boolean>>({});
     const modalRef = useRef(null);
+    const isInstanceBusy = ['running', 'launching', 'installing', 'starting', 'stopping'].includes(String(instanceStatus || '').toLowerCase());
 
     React.useEffect(() => {
         const updateVersions = async () => {
@@ -55,6 +56,13 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
     }, [config.loader, showSnapshots]);
 
     const handleSave = async () => {
+        if (isInstanceBusy) {
+            const message = t('instance_settings.busy_error', 'This instance is currently starting or running. Stop it before saving settings.');
+            setError(message);
+            addNotification(message, 'error');
+            return;
+        }
+
         setLoading(true);
         setError(null);
         try {
@@ -94,6 +102,13 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
                 removeUnresolvedIds
             });
             if (res.success) {
+                if (onSave) {
+                    onSave({
+                        ...instance,
+                        ...config,
+                        status: 'installing'
+                    });
+                }
                 addNotification('Migration started in background', 'success');
                 setShowMigrationReview(false);
                 onClose();
@@ -281,6 +296,9 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
                                             className="w-full bg-card border border-border rounded p-3 focus:border-primary outline-none transition-colors"
                                         />
                                         <p className="text-xs text-muted-foreground">{t('instance_settings.general.rename_note')}</p>
+                                        {isInstanceBusy && (
+                                            <p className="text-xs text-amber-400">{t('instance_settings.busy_hint', 'While the instance is starting/running, save and rename are disabled.')}</p>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -337,7 +355,7 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
                                         <div className="pt-4 border-t border-border">
                                             <button
                                                 onClick={handleMigrate}
-                                                disabled={loading}
+                                                disabled={loading || isInstanceBusy}
                                                 className="w-full bg-primary hover:bg-primary-hover text-black font-bold py-3 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all"
                                             >
                                                 {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div> : (
@@ -505,7 +523,7 @@ function InstanceSettingsModal({ instance, onClose, onSave, onDelete }) {
                                     <button onClick={onClose} className="px-6 py-2 rounded text-foreground hover:text-accent-foreground hover:bg-accent transition-colors">{t('common.cancel')}</button>
                                     <button
                                         onClick={handleSave}
-                                        disabled={loading}
+                                        disabled={loading || isInstanceBusy}
                                         className="px-6 py-2 rounded bg-primary text-black font-bold hover:brightness-110 transition-all disabled:opacity-50"
                                     >
                                         {loading ? t('instance_settings.saving') : t('instance_settings.save_btn')}

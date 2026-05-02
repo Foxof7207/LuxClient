@@ -48,6 +48,8 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
     const [autoScroll, setAutoScroll] = useState(true);
     const [isUploadingLog, setIsUploadingLog] = useState(false);
     const logContainerRef = useRef(null);
+    const liveLogBufferRef = useRef('');
+    const liveLogFlushTimerRef = useRef<number | null>(null);
     const status = runningInstances[instance.name];
     const isRunning = status === 'running';
     const isLaunching = status === 'launching';
@@ -83,6 +85,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         failedCount: number;
     } | null>(null);
     const BULK_UPDATE_NOTIFICATION_THRESHOLD = 4;
+    const MAX_LIVE_LOG_CHARS = 1200000;
 
     useEffect(() => {
         if (!showMenu) return;
@@ -373,10 +376,43 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
             (activeTab === 'logs' && selectedLog === 'install.log' && isInstalling);
 
         if (isLiveRequest) {
+            const flushBufferedLogs = () => {
+                if (!liveLogBufferRef.current) return;
+                const chunk = liveLogBufferRef.current;
+                liveLogBufferRef.current = '';
+                setLog(prev => {
+                    const next = prev + chunk;
+                    if (next.length <= MAX_LIVE_LOG_CHARS) return next;
+                    return next.slice(-MAX_LIVE_LOG_CHARS);
+                });
+            };
+
             const removeListener = window.electronAPI.onLaunchLog((line) => {
-                setLog(prev => prev + '\n' + line);
+                liveLogBufferRef.current += `\n${line}`;
+
+                if (!liveLogFlushTimerRef.current) {
+                    liveLogFlushTimerRef.current = window.setTimeout(() => {
+                        liveLogFlushTimerRef.current = null;
+                        flushBufferedLogs();
+                    }, 120);
+                }
+
+                if (liveLogBufferRef.current.length > 200000) {
+                    if (liveLogFlushTimerRef.current) {
+                        clearTimeout(liveLogFlushTimerRef.current);
+                        liveLogFlushTimerRef.current = null;
+                    }
+                    flushBufferedLogs();
+                }
             });
             return () => {
+                if (liveLogFlushTimerRef.current) {
+                    clearTimeout(liveLogFlushTimerRef.current);
+                    liveLogFlushTimerRef.current = null;
+                }
+                if (liveLogBufferRef.current) {
+                    flushBufferedLogs();
+                }
                 if (removeListener) removeListener();
             };
         }
@@ -1951,6 +1987,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                 showSettings && (
                     <InstanceSettingsModal
                         instance={instance}
+                        instanceStatus={status}
                         onClose={() => setShowSettings(false)}
                         onSave={handleSettingsSave}
                         onDelete={onBack}

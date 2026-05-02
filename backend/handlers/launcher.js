@@ -1,7 +1,7 @@
-const { Client } = require('minecraft-launcher-core');
 const path = require('path');
 const { app } = require('electron');
 const fs = require('fs-extra');
+const { fork } = require('child_process');
 const Store = require('electron-store');
 const store = new Store();
 const { getUserProfile } = require('../utils/secureProfileStore');
@@ -1318,6 +1318,76 @@ module.exports = (ipcMain, mainWindow) => {
     const liveLogs = new Map();
     const childProcesses = new Map();
     const activeLaunches = new Map();
+    const launchWorkers = new Map();
+    const launchLogBuffers = new Map();
+    const launchLogFlushTimers = new Map();
+
+    const clearLaunchLogBuffer = (instanceName) => {
+        const timer = launchLogFlushTimers.get(instanceName);
+        if (timer) {
+            clearTimeout(timer);
+            launchLogFlushTimers.delete(instanceName);
+        }
+        launchLogBuffers.delete(instanceName);
+    };
+
+    const flushLaunchLogBuffer = (instanceName) => {
+        const timer = launchLogFlushTimers.get(instanceName);
+        if (timer) {
+            clearTimeout(timer);
+            launchLogFlushTimers.delete(instanceName);
+        }
+
+        const buffer = launchLogBuffers.get(instanceName);
+        if (!buffer || buffer.length === 0) return;
+
+        const chunk = buffer.join('\n');
+        buffer.length = 0;
+
+        if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send('launch:log', chunk);
+        }
+    };
+
+    const enqueueLaunchLog = (instanceName, line) => {
+        if (!line) return;
+
+        const queue = launchLogBuffers.get(instanceName) || [];
+        queue.push(String(line));
+        launchLogBuffers.set(instanceName, queue);
+
+        // Flush quickly for normal flow, but immediately if backlog spikes.
+        if (queue.length >= 40 || queue.join('\n').length >= 120000) {
+            flushLaunchLogBuffer(instanceName);
+            return;
+        }
+
+        if (!launchLogFlushTimers.has(instanceName)) {
+            const timer = setTimeout(() => {
+                flushLaunchLogBuffer(instanceName);
+            }, 120);
+            launchLogFlushTimers.set(instanceName, timer);
+        }
+    };
+
+    const getLaunchWorkerScriptPath = () => {
+        return path.join(__dirname, '..', 'workers', 'minecraftLaunchWorker.js');
+    };
+
+    const stopLaunchWorker = (instanceName) => {
+        const worker = launchWorkers.get(instanceName);
+        if (!worker) return;
+        launchWorkers.delete(instanceName);
+        try {
+            worker.removeAllListeners();
+            if (!worker.killed) {
+                worker.kill('SIGTERM');
+            }
+        } catch (error) {
+            console.warn(`[Launcher] Failed to stop launch worker for ${instanceName}: ${error.message}`);
+        }
+    };
+
     function setWindowTitle(pid, title) {
         if (process.platform !== 'win32') return;
 
@@ -1502,7 +1572,13 @@ Add-Type -TypeDefinition $code -Language CSharp
     ipcMain.handle('launcher:abort-launch', async (_, instanceName) => {
         if (activeLaunches.has(instanceName)) {
             activeLaunches.get(instanceName).cancelled = true;
+            stopLaunchWorker(instanceName);
             console.log(`[Launcher] Mark launch cancelled for ${instanceName}`);
+            return { success: true };
+        }
+        if (launchWorkers.has(instanceName)) {
+            stopLaunchWorker(instanceName);
+            console.log(`[Launcher] Aborted running launch worker for ${instanceName}`);
             return { success: true };
         }
         return { success: false, error: 'No active launch found to abort' };
@@ -1530,7 +1606,7 @@ Add-Type -TypeDefinition $code -Language CSharp
     });
     ipcMain.handle('launcher:kill', async (_, instanceName) => {
         const proc = childProcesses.get(instanceName);
-        if (proc && !proc.killed) {
+        if (proc && proc.pid) {
             try {
                 if (process.platform === 'win32') {
                     const { exec } = require('child_process');
@@ -1538,8 +1614,9 @@ Add-Type -TypeDefinition $code -Language CSharp
                         if (err) console.error('Failed to kill process tree:', err);
                     });
                 } else {
-                    proc.kill('SIGTERM');
+                    process.kill(proc.pid, 'SIGTERM');
                 }
+                stopLaunchWorker(instanceName);
                 childProcesses.delete(instanceName);
                 runningInstances.delete(instanceName);
                 liveLogs.delete(instanceName);
@@ -1548,6 +1625,14 @@ Add-Type -TypeDefinition $code -Language CSharp
             } catch (e) {
                 return { success: false, error: e.message };
             }
+        }
+
+        if (launchWorkers.has(instanceName)) {
+            stopLaunchWorker(instanceName);
+            runningInstances.delete(instanceName);
+            liveLogs.delete(instanceName);
+            mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
+            return { success: true };
         }
 
         return { success: false, error: 'No running process found for this instance.' };
@@ -2037,8 +2122,6 @@ Add-Type -TypeDefinition $code -Language CSharp
                 }
             }
 
-            const launcher = new Client();
-
             liveLogs.set(instanceName, []);
             if (!isExternal && config.preLaunchHook && config.preLaunchHook.trim()) {
                 try {
@@ -2090,6 +2173,7 @@ Add-Type -TypeDefinition $code -Language CSharp
                 'java.lang.NoSuchMethodError'
             ];
             let gameStarted = false;
+            let closeHandled = false;
 
             const appendLog = (data) => {
                 const line = data.toString();
@@ -2113,41 +2197,12 @@ Add-Type -TypeDefinition $code -Language CSharp
                 logs.push(line);
                 if (logs.length > 1000) logs.shift();
                 liveLogs.set(instanceName, logs);
-                mainWindow.webContents.send('launch:log', line);
+                enqueueLaunchLog(instanceName, line);
             };
 
-            launcher.on('debug', (line) => {
-                const sanitizedLine = String(line ?? '')
-                    .replace(/\[MCLC\]\s*:?\s*/gi, '')
-                    .trim();
-
-                if (!sanitizedLine) return;
-                appendLog(`[Debug] [LUX] ${sanitizedLine}`);
-            });
-            launcher.on('data', (line) => appendLog(line));
-            launcher.on('stderr', (line) => appendLog(`[ERROR] ${line}`));
-            launcher.on('progress', (e) => {
-                mainWindow.webContents.send('launch:progress', { ...e, instanceName });
-            });
-
-            launcher.on('arguments', (e) => {
-                                gameStarted = true;
-                mainWindow.webContents.send('instance:status', {
-                    instanceName,
-                    status: 'running',
-                    loader: config.loader || 'Vanilla',
-                    version: config.version
-                });
-                try {
-                    const discord = require('./discord');
-                    discord.setActivity(`Playing ${instanceName}`, 'In Game', 'minecraft', 'Minecraft', runningInstances.get(instanceName));
-                } catch (e) {
-                    console.error('[Launcher] Failed to update Discord activity on game start:', e.message);
-                }
-            });
-
-            launcher.on('close', async (code, signal) => {
+            const handleGameClosed = async (code, signal) => {
                 console.log(`[Launcher] MC Process closed with code: ${code}, signal: ${signal || 'none'}, logCrashDetected: ${logCrashDetected}`);
+                flushLaunchLogBuffer(instanceName);
 
                 const startTime = runningInstances.get(instanceName);
                 if (startTime) {
@@ -2222,6 +2277,7 @@ Add-Type -TypeDefinition $code -Language CSharp
 
                 childProcesses.delete(instanceName);
                 liveLogs.delete(instanceName);
+                clearLaunchLogBuffer(instanceName);
                 mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
 
                 try {
@@ -2240,11 +2296,19 @@ Add-Type -TypeDefinition $code -Language CSharp
                         console.error('[Launcher] On-close backup failed:', err);
                     });
                 }
-            });
+            };
+
+            const handleGameClosedOnce = async (code, signal) => {
+                if (closeHandled) return;
+                closeHandled = true;
+                await handleGameClosed(code, signal);
+            };
 
             try {
                 if (activeLaunches.get(instanceName)?.cancelled) {
                     console.log(`[Launcher] Launch aborted before spawn for ${instanceName}`);
+                    stopLaunchWorker(instanceName);
+                    clearLaunchLogBuffer(instanceName);
                     activeLaunches.delete(instanceName);
                     runningInstances.delete(instanceName);
                     liveLogs.delete(instanceName);
@@ -2264,25 +2328,158 @@ Add-Type -TypeDefinition $code -Language CSharp
                     }
                 }
 
-                const proc = await launcher.launch(opts);
-                if (proc && proc.pid) {
-                    childProcesses.set(instanceName, proc);
-                    setWindowTitle(proc.pid, `Lux Client ${opts.version.number}`);
+                const worker = fork(getLaunchWorkerScriptPath(), [], {
+                    stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+                });
+                launchWorkers.set(instanceName, worker);
 
-                    if (settings.minimalMode && process.platform === 'win32' && mainWindow) {
-                        console.log('[Launcher] Minimal Mode enabled, minimizing window.');
-                        mainWindow.minimize();
-                    }
-                } else {
-                    console.error('[Launcher] Launch failed: No valid process returned from Lux.', proc);
+                let launchResolved = false;
+                let spawnReceived = false;
+                const launchResult = await new Promise((resolve) => {
+                    const finalizeLaunch = (result) => {
+                        if (launchResolved) return;
+                        launchResolved = true;
+                        resolve(result);
+                    };
+
+                    worker.on('message', (message) => {
+                        const type = String(message?.type || '');
+
+                        if (type === 'debug') {
+                            const sanitizedLine = String(message?.line ?? '')
+                                .replace(/\[MCLC\]\s*:?\s*/gi, '')
+                                .trim();
+                            if (sanitizedLine) appendLog(`[Debug] [LUX] ${sanitizedLine}`);
+                            return;
+                        }
+
+                        if (type === 'data') {
+                            appendLog(String(message?.line ?? ''));
+                            return;
+                        }
+
+                        if (type === 'stderr') {
+                            appendLog(`[ERROR] ${String(message?.line ?? '')}`);
+                            return;
+                        }
+
+                        if (type === 'progress') {
+                            mainWindow.webContents.send('launch:progress', {
+                                ...(message?.payload || {}),
+                                instanceName
+                            });
+                            return;
+                        }
+
+                        if (type === 'arguments') {
+                            gameStarted = true;
+                            mainWindow.webContents.send('instance:status', {
+                                instanceName,
+                                status: 'running',
+                                loader: config.loader || 'Vanilla',
+                                version: config.version
+                            });
+                            try {
+                                const discord = require('./discord');
+                                discord.setActivity(`Playing ${instanceName}`, 'In Game', 'minecraft', 'Minecraft', runningInstances.get(instanceName));
+                            } catch (error) {
+                                console.error('[Launcher] Failed to update Discord activity on game start:', error.message);
+                            }
+                            return;
+                        }
+
+                        if (type === 'spawn') {
+                            const pid = Number.parseInt(String(message?.pid || ''), 10);
+                            if (!Number.isFinite(pid) || pid <= 0) {
+                                finalizeLaunch({ success: false, error: 'Worker did not provide a valid Minecraft PID.' });
+                                return;
+                            }
+
+                            spawnReceived = true;
+                            childProcesses.set(instanceName, {
+                                pid,
+                                workerPid: worker.pid,
+                                killed: false
+                            });
+                            setWindowTitle(pid, `Lux Client ${opts.version.number}`);
+
+                            if (settings.minimalMode && process.platform === 'win32' && mainWindow) {
+                                console.log('[Launcher] Minimal Mode enabled, minimizing window.');
+                                mainWindow.minimize();
+                            }
+
+                            finalizeLaunch({ success: true });
+                            return;
+                        }
+
+                        if (type === 'launch-error') {
+                            const errorMessage = String(message?.error || 'Unknown launch worker error');
+                            if (spawnReceived) {
+                                console.error(`[Launcher] Launch worker reported runtime error for ${instanceName}: ${errorMessage}`);
+                            } else {
+                                finalizeLaunch({ success: false, error: errorMessage });
+                            }
+                            return;
+                        }
+
+                        if (type === 'close') {
+                            handleGameClosedOnce(message?.code, message?.signal)
+                                .catch((error) => {
+                                    console.error('[Launcher] Failed to process worker close message:', error);
+                                })
+                                .finally(() => {
+                                    stopLaunchWorker(instanceName);
+                                });
+                        }
+                    });
+
+                    worker.on('error', (error) => {
+                        if (!spawnReceived) {
+                            finalizeLaunch({ success: false, error: error.message || 'Launch worker process error' });
+                        } else {
+                            console.error('[Launcher] Launch worker process error after spawn:', error);
+                        }
+                    });
+
+                    worker.on('exit', (code, signal) => {
+                        const normalizedSignal = signal || (Number.isInteger(code) ? `worker-exit-${code}` : 'worker-exit');
+                        if (!spawnReceived && !launchResolved) {
+                            finalizeLaunch({ success: false, error: 'Launch worker exited before Minecraft started.' });
+                            return;
+                        }
+
+                        if (spawnReceived && !closeHandled) {
+                            handleGameClosedOnce(code, normalizedSignal)
+                                .catch((error) => {
+                                    console.error('[Launcher] Failed to process worker exit close fallback:', error);
+                                })
+                                .finally(() => {
+                                    stopLaunchWorker(instanceName);
+                                });
+                        }
+                    });
+
+                    worker.send({
+                        type: 'start',
+                        instanceName,
+                        opts
+                    });
+                });
+
+                if (!launchResult?.success) {
+                    stopLaunchWorker(instanceName);
+                    console.error('[Launcher] Launch failed in worker:', launchResult?.error || 'Unknown error');
+                    clearLaunchLogBuffer(instanceName);
                     runningInstances.delete(instanceName);
                     activeLaunches.delete(instanceName);
                     liveLogs.delete(instanceName);
                     mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
-                    return { success: false, error: 'Failed to start Minecraft process (no PID returned)' };
+                    return { success: false, error: launchResult?.error || 'Failed to start Minecraft process in launch worker' };
                 }
             } catch (e) {
                 console.error('Launch error:', e);
+                stopLaunchWorker(instanceName);
+                clearLaunchLogBuffer(instanceName);
                 runningInstances.delete(instanceName);
                 liveLogs.delete(instanceName);
                 childProcesses.delete(instanceName);
@@ -2300,6 +2497,7 @@ Add-Type -TypeDefinition $code -Language CSharp
             return { success: true };
         } catch (e) {
             console.error('Initial launch error:', e);
+            clearLaunchLogBuffer(instanceName);
             activeLaunches.delete(instanceName);
             runningInstances.delete(instanceName);
             childProcesses.delete(instanceName);

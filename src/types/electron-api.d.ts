@@ -215,10 +215,19 @@ interface ElectronAPI {
   restoreLocalBackup: (instanceName: string, backupFileName: string) => Promise<any>;
   removeFile: (filePath: string) => Promise<any>;
 
+  toolsScanCompatibility: (instanceName: string, targetVersion: string, targetLoader: string) => Promise<any>;
+  toolsApplyCompatibility: (instanceName: string, targetVersion: string, targetLoader: string, options?: any) => Promise<any>;
+  toolsListWorlds: (instanceName: string) => Promise<any>;
+  toolsSafeCloneWorld: (sourceInstance: string, worldFolderName: string, targetInstance: string, newWorldName?: string) => Promise<any>;
+  toolsResourcepackReport: (instanceName: string) => Promise<any>;
+  toolsResourcepackCleanup: (instanceName: string, packName: string) => Promise<any>;
+  toolsResourcepackCompressPng: (instanceName: string, packName: string) => Promise<any>;
+
   checkForUpdates: () => Promise<any>;
   downloadUpdate: (url: string, name: string) => Promise<any>;
   installUpdate: (path: string) => Promise<any>;
   setTestVersion: (version: string) => Promise<any>;
   onUpdaterProgress: (callback: IpcCallback) => UnsubscribeFn;
+  onCompatibilityLog: (callback: (data: { msg: string }) => void) => UnsubscribeFn;
   onCrashReport: (callback: IpcCallback) => UnsubscribeFn;
 }
