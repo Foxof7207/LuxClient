@@ -748,7 +748,9 @@
             "title": "Settings Categories",
             "subtitle": "Select a category on the left to view matching entries on the right.",
             "search_placeholder": "Search categories (e.g. Java, Cloud, Update...)",
-            "search_empty": "No categories found."
+            "search_empty": "No categories found.",
+            "search_placeholder_all": "Search all settings (e.g. Modrinth, Java, RAM...)",
+            "search_empty_all": "No settings match your search."
         }
     },
     "extensions": {

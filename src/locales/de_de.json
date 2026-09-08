@@ -747,7 +747,9 @@
             "title": "Einstellungen",
             "subtitle": "Wähle links eine Kategorie, rechts siehst du die passenden Einträge.",
             "search_placeholder": "Kategorien suchen (z.B. Java, Cloud, Update...)",
-            "search_empty": "Keine Kategorie gefunden."
+            "search_empty": "Keine Kategorie gefunden.",
+            "search_placeholder_all": "Alle Einstellungen durchsuchen (z. B. Modrinth, Java, RAM...)",
+            "search_empty_all": "Keine Einstellung passt zur Suche."
         }
     },
     "extensions": {

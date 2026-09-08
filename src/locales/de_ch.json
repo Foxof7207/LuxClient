@@ -729,7 +729,9 @@
             "title": "Einstellungen",
             "subtitle": "Wähl links e Kategorie, rechts siehsch d passende Einträge.",
             "search_placeholder": "Kategorien sueche (z.B. Java, Cloud, Update...)",
-            "search_empty": "Keine Kategorie gfunde."
+            "search_empty": "Keine Kategorie gfunde.",
+            "search_placeholder_all": "Alli Iistellige duresueche (z. B. Modrinth, Java, RAM...)",
+            "search_empty_all": "Kei Iistellig passt zur Sueche."
         }
     },
     "extensions": {
