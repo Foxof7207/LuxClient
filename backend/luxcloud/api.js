@@ -24,6 +24,14 @@ const OFFLINE_CODES = new Set([
 
 const TIMEOUT_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ERR_BAD_RESPONSE_TIMEOUT']);
 
+// Disk trouble on this machine reached here as `server_unreachable` before, which
+// both misled the user ("Lux Cloud is down") and made auto-sync retry forever
+// against a fault no amount of waiting can fix.
+const LOCAL_IO_CODES = new Set([
+    'ENOENT', 'EEXIST', 'EPERM', 'EACCES', 'EBUSY', 'EMFILE', 'ENFILE',
+    'ENOSPC', 'EROFS', 'EISDIR', 'ENOTDIR', 'ENOTEMPTY', 'EXDEV', 'ENAMETOOLONG'
+]);
+
 const inflight = new Set();
 let abortReason = null;
 
@@ -76,6 +84,12 @@ function normalizeError(err) {
 
     if (err && OFFLINE_CODES.has(err.code)) {
         return new LuxCloudError('offline', 'Lux Cloud is not reachable right now', { details: { cause: err.code } });
+    }
+
+    if (err && LOCAL_IO_CODES.has(err.code)) {
+        return new LuxCloudError('local_io_error', err.message || `Local file error (${err.code})`, {
+            details: { cause: err.code }
+        });
     }
 
     return new LuxCloudError('server_unreachable', (err && err.message) || 'Unknown network error');

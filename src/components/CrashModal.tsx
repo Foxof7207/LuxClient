@@ -395,18 +395,15 @@ const CrashModal = ({ isOpen, onClose, crashData, onFixApplied }) => {
                                     <div className="flex justify-between items-start gap-4">
                                         <div className="space-y-4 flex-1">
                                             <div className="space-y-1">
-                                                <h4 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">{t(issue.title)}</h4>
+                                                <h4 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">{t(issue.title, issue.values || {}) as string}</h4>
                                                 <p className="text-muted-foreground text-sm leading-relaxed">
-                                                    {t(issue.description, {
-                                                        ...issue.compatibility,
-                                                        // Fallback for regex groups if needed
-                                                        group1: issue.capturedGroups?.[0],
-                                                        group2: issue.capturedGroups?.[1],
-                                                        // Map specific fields for patterns
-                                                        mod: issue.capturedGroups?.[0],
-                                                        version: issue.capturedGroups?.[0]
-                                                    }) as string}
+                                                    {t(issue.description, issue.values || {}) as string}
                                                 </p>
+                                                {issue.requiredBy && (
+                                                    <p className="text-muted-foreground/80 text-xs leading-relaxed">
+                                                        {t(issue.requiredBy, issue.values || {}) as string}
+                                                    </p>
+                                                )}
                                             </div>
 
                                             <div className="flex flex-wrap gap-2">
@@ -428,7 +425,7 @@ const CrashModal = ({ isOpen, onClose, crashData, onFixApplied }) => {
                                             disabled={isApplyingFix}
                                             className="px-6 py-2.5 bg-primary text-black rounded-xl font-bold text-sm transition-all disabled:opacity-50 whitespace-nowrap shadow-md hover:scale-[1.02] active:scale-[0.98]"
                                         >
-                                            {isApplyingFix ? t('common.applying') : (t(issue.fixText) as string)}
+                                            {isApplyingFix ? t('common.applying') : (t(issue.fixText, issue.values || {}) as string)}
                                         </button>
                                     </div>
                                 </div>

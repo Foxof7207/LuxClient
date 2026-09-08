@@ -252,16 +252,42 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
             loadLog();
         }
     }, [activeTab, contentView, instance, selectedLog]);
+    // Keeps the "Installed" markers in the search view in step with what is actually on
+    // disk. Merging the installed ids into the previous state was not enough: a mod the
+    // user deleted disappeared from `mods` but its old 'success' entry survived, so the
+    // search kept claiming the mod was still installed.
     useEffect(() => {
-        const installedIds = {};
-        mods.forEach(m => { if (m.projectId) installedIds[m.projectId] = 'success'; });
-        resourcePacks.forEach(p => { if (p.projectId) installedIds[p.projectId] = 'success'; });
-        shaders.forEach(s => { if (s.projectId) installedIds[s.projectId] = 'success'; });
+        const loaded = loadedContentTypesRef.current;
+        const installedIds = new Set<string>();
 
-        setInstallationStatus(prev => ({
-            ...prev,
-            ...installedIds
-        }));
+        // Only consider a list authoritative once it has actually been fetched - an empty
+        // list that was never loaded must not un-mark anything.
+        if (loaded.mod) mods.forEach((m: any) => { if (m.projectId) installedIds.add(m.projectId); });
+        if (loaded.resourcepack) resourcePacks.forEach((p: any) => { if (p.projectId) installedIds.add(p.projectId); });
+        if (loaded.shader) shaders.forEach((s: any) => { if (s.projectId) installedIds.add(s.projectId); });
+
+        setInstallationStatus(prev => {
+            const next = { ...prev };
+            let changed = false;
+
+            for (const projectId of installedIds) {
+                if (next[projectId] !== 'success') {
+                    next[projectId] = 'success';
+                    changed = true;
+                }
+            }
+
+            for (const [projectId, status] of Object.entries(next)) {
+                // 'installing' and 'failed' are transient states of the current session
+                // and must survive a refresh of the installed lists.
+                if (status === 'success' && !installedIds.has(projectId)) {
+                    delete next[projectId];
+                    changed = true;
+                }
+            }
+
+            return changed ? next : prev;
+        });
     }, [mods, resourcePacks, shaders]);
     useEffect(() => {
         if (activeTab === 'content' && contentView === 'search') {
@@ -367,6 +393,15 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
         } finally {
             setLoadingShaders(false);
         }
+    };
+
+    // Refreshes the list that just gained an item, whichever tab the user installed from.
+    // Keying this off the visible tab meant an install from the search view never refreshed
+    // anything, leaving the installed lists stale until the user switched tabs by hand.
+    const reloadInstalledFor = (category: string) => {
+        if (category === 'resourcepack') return loadResourcePacks();
+        if (category === 'shader') return loadShaders();
+        return loadMods();
     };
 
     const loadWorlds = async () => {
@@ -944,9 +979,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                 setInstallationStatus(prev => ({ ...prev, [project.project_id]: 'success' }));
                 Analytics.trackDownload(searchCategory, project.title, project.project_id);
 
-                if (contentView === 'mods') loadMods();
-                if (contentView === 'resourcepacks') loadResourcePacks();
-                if (contentView === 'shaders') loadShaders();
+                reloadInstalledFor(searchCategory);
             } else {
                 addNotification(`Failed to install: ${installRes?.error || 'Unknown error'}`, 'error');
                 setInstallationStatus(prev => ({ ...prev, [project.project_id]: 'failed' }));
@@ -1001,9 +1034,7 @@ function InstanceDetails({ instance, onBack, runningInstances, onInstanceUpdate,
                 addNotification(`Installed ${selectedProject.title}!`, 'success');
                 setInstallationStatus(prev => ({ ...prev, [selectedProject.project_id]: 'success' }));
                 Analytics.trackDownload(searchCategory, selectedProject.title, selectedProject.project_id);
-                if (contentView === 'mods') loadMods();
-                if (contentView === 'resourcepacks') loadResourcePacks();
-                if (contentView === 'shaders') loadShaders();
+                reloadInstalledFor(searchCategory);
                 setSelectedProject(null);
             } else {
                 addNotification(`Failed to install: ${installRes?.error || 'Unknown error'}`, 'error');

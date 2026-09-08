@@ -7,6 +7,13 @@ interface CrashPattern {
     fixAction: string;
     priority: number;
     fixUrl?: string;
+    // Values the description/fixText placeholders need, pulled out of the match.
+    values?: (match: RegExpMatchArray) => Record<string, any>;
+    // Placeholder names the main description cannot do without. Several regexes
+    // have alternatives that capture nothing, and rendering the raw "{{mod}}" at
+    // the user is worse than a slightly vaguer sentence.
+    requires?: string[];
+    descriptionFallback?: string;
 }
 
 const CRASH_PATTERNS: CrashPattern[] = [
@@ -35,7 +42,10 @@ const CRASH_PATTERNS: CrashPattern[] = [
         description: 'crash.patterns.java_requirement_mismatch.description',
         fixText: 'crash.patterns.java_requirement_mismatch.fix_text',
         fixAction: 'fix_java_version',
-        priority: 10
+        priority: 10,
+        values: (match) => ({ version: match[1] }),
+        requires: ['version'],
+        descriptionFallback: 'crash.patterns.java_requirement_mismatch.description_unknown'
     },
     {
         id: 'pixel_format_not_accelerated',
@@ -55,7 +65,10 @@ const CRASH_PATTERNS: CrashPattern[] = [
         fixText: 'crash.patterns.opengl_version_too_low.fix_text',
         fixAction: 'open_url',
         fixUrl: 'https://help.minecraft.net/hc/en-us/articles/4409137344397-Minecraft-Java-Edition-System-Requirements',
-        priority: 14
+        priority: 14,
+        values: (match) => ({ version: match[1] }),
+        requires: ['version'],
+        descriptionFallback: 'crash.patterns.opengl_version_too_low.description_unknown'
     },
     {
         id: 'duplicate_mods',
@@ -64,7 +77,10 @@ const CRASH_PATTERNS: CrashPattern[] = [
         description: 'crash.patterns.duplicate_mods.description',
         fixText: 'crash.patterns.duplicate_mods.fix_text',
         fixAction: 'open_mods_folder',
-        priority: 12
+        priority: 12,
+        values: (match) => ({ mod: match[1] }),
+        requires: ['mod'],
+        descriptionFallback: 'crash.patterns.duplicate_mods.description_unknown'
     },
     {
         id: 'config_corruption',
@@ -82,7 +98,12 @@ const CRASH_PATTERNS: CrashPattern[] = [
         description: 'crash.patterns.mixin_transformer_error.description',
         fixText: 'crash.patterns.mixin_transformer_error.fix_text',
         fixAction: 'disable_mod',
-        priority: 11
+        priority: 11,
+        // The first alternative ("MixinTransformerError") captures nothing, so the
+        // mod name is only known when the second one matched.
+        values: (match) => ({ mod: match[1] }),
+        requires: ['mod'],
+        descriptionFallback: 'crash.patterns.mixin_transformer_error.description_unknown'
     },
     {
         id: 'incompatible_mod_set',
@@ -263,25 +284,32 @@ const stripColors = (text) => {
 
 const normalizeToken = (value) => cleanToken(value).toLowerCase();
 
-const buildCompatibilityDescription = (entry) => {
-    const modName = cleanToken(entry.modName);
-    const dependencyName = cleanToken(entry.dependencyName);
-    const requiredVersion = cleanToken(entry.requiredVersion);
-    const foundVersion = cleanToken(entry.foundVersion);
+// Picks the phrasing that fits the values we actually have. Every returned key must
+// only reference placeholders that are non-empty here, otherwise i18next renders the
+// literal "{{modName}}" into the crash report.
+const buildCompatibilityDescription = (values) => {
+    const modName = values.modName;
+    const dependencyName = values.dependencyName;
+    const requiredVersion = values.requiredVersion;
+    const foundVersion = values.foundVersion;
 
-    if (dependencyName && requiredVersion && foundVersion) {
-        return 'crash.compatibility.needs_version_installed';
+    if (!dependencyName) return 'crash.compatibility.generic_conflict';
+
+    if (requiredVersion && foundVersion) {
+        return modName
+            ? 'crash.compatibility.needs_version_installed'
+            : 'crash.compatibility.needs_version_installed_no_mod';
     }
 
-    if (dependencyName && requiredVersion) {
-        return 'crash.compatibility.needs_version';
+    if (requiredVersion) {
+        return modName
+            ? 'crash.compatibility.needs_version'
+            : 'crash.compatibility.needs_version_no_mod';
     }
 
-    if (dependencyName) {
-        return 'crash.compatibility.missing_dependency';
-    }
-
-    return 'crash.compatibility.generic_conflict';
+    return modName
+        ? 'crash.compatibility.missing_dependency'
+        : 'crash.compatibility.missing_dependency_no_mod';
 };
 
 const toCompatibilityIssue = (group, index) => {
@@ -294,19 +322,31 @@ const toCompatibilityIssue = (group, index) => {
 
     // Collate affected mods
     const affectedMods = Array.from(new Set(entries.map(e => e.modName).filter(n => n && n !== 'System')));
-    
-    let description = buildCompatibilityDescription(entries[0]);
-    if (affectedMods.length > 0) {
-        description += ` Required by: ${affectedMods.join(', ')}.`;
-    }
+
+    // These are the placeholder values the description and the fix button need. They
+    // used to be missing entirely, which left "{{modName}}" and "{{targetMod}}" in the
+    // rendered text.
+    const values = {
+        modName: cleanToken(entries[0].modName),
+        dependencyName: cleanToken(entries[0].dependencyName),
+        requiredVersion: cleanToken(requiredVersion),
+        foundVersion: cleanToken(foundVersion),
+        targetMod: cleanToken(targetMod),
+        affectedMods: affectedMods.join(', ')
+    };
 
     return {
         id: `compat_${normalizeToken(targetMod) || index}`,
         title: isLoader ? 'crash.patterns.outdated_loader.title' : (isOutdated ? 'crash.compatibility.outdated_dependency_title' : 'crash.compatibility.missing_dependency_title'),
-        description,
+        description: buildCompatibilityDescription(values),
+        // Rendered as a separate line so the description stays a plain, translatable key.
+        // Appending English prose to the key itself produced a lookup miss, and i18next
+        // then printed the raw key at the user.
+        requiredBy: affectedMods.length > 0 ? 'crash.compatibility.required_by' : null,
         fixText: isLoader ? 'crash.patterns.outdated_loader.fix_text' : 'crash.compatibility.install_fix_text',
         fixAction: isLoader ? 'update_loader' : 'install_compatible_mod',
         priority: isLoader ? 20 : (isOutdated ? 17 : 18),
+        values,
         compatibility: {
             issueType: isOutdated ? 'outdated_dependency' : 'missing_dependency',
             targetMod: cleanToken(targetMod),
@@ -413,15 +453,30 @@ export function analyzeLog(logContent: string | null | undefined, options: any =
     for (const pattern of CRASH_PATTERNS) {
         const match = safeLog.match(pattern.regex);
         if (match) {
+            const rawValues = typeof pattern.values === 'function' ? pattern.values(match) : {};
+            const values: Record<string, any> = {};
+            for (const [key, value] of Object.entries(rawValues)) {
+                const cleaned = cleanToken(value);
+                if (cleaned) values[key] = cleaned;
+            }
+
+            // A regex alternative that captured nothing must not leave a raw
+            // "{{mod}}" in the sentence shown to the user.
+            const missing = (pattern.requires || []).some((key) => !values[key]);
+            const description = missing && pattern.descriptionFallback
+                ? pattern.descriptionFallback
+                : (typeof pattern.description === 'function' ? pattern.description(match) : pattern.description);
+
             const issue = {
                 id: pattern.id,
                 title: pattern.title,
-                description: typeof pattern.description === 'function' ? pattern.description(match) : pattern.description,
+                description,
                 fixText: pattern.fixText,
                 fixAction: pattern.fixAction,
                 priority: pattern.priority,
                 match: match[0],
-                capturedGroups: match.slice(1)
+                capturedGroups: match.slice(1),
+                values
             };
             issues.push(issue);
         }

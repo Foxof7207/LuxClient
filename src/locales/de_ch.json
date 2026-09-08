@@ -1137,7 +1137,8 @@
             "java_requirement_mismatch": {
                 "title": "Higher Java Version Required",
                 "description": "This instance requires Java {{version}} or higher to run.",
-                "fix_text": "Update Java Version"
+                "fix_text": "Update Java Version",
+                "description_unknown": "Die Instanz bruucht e nöiri Java-Version als di aktuell usgwählti."
             },
             "pixel_format_not_accelerated": {
                 "title": "Graphics Driver Issue",
@@ -1147,12 +1148,14 @@
             "opengl_version_too_low": {
                 "title": "Legacy Graphics Hardware",
                 "description": "Your graphics card only supports OpenGL up to {{version}}, which is below the requirement for this Minecraft version.",
-                "fix_text": "Open Support Page"
+                "fix_text": "Open Support Page",
+                "description_unknown": "Dini Grafikcharte unterstützt di OpenGL-Version nid, wo die Minecraft-Version bruucht."
             },
             "duplicate_mods": {
                 "title": "Duplicate Mods Detected",
                 "description": "You have multiple versions of the mod \"{{mod}}\" installed. Mod loaders cannot handle duplicates.",
-                "fix_text": "Open Mods Folder"
+                "fix_text": "Open Mods Folder",
+                "description_unknown": "Dr glich Mod isch mehrfach installiert. Mod-Loader chöi mit Duplikat nid umgah."
             },
             "config_corruption": {
                 "title": "Corrupted Configuration",
@@ -1162,7 +1165,8 @@
             "mixin_transformer_error": {
                 "title": "Mod Conflict (Mixin)",
                 "description": "A conflict occurred while patching the game code. Mod \"{{mod}}\" is the likely cause.",
-                "fix_text": "Disable Mod"
+                "fix_text": "Disable Mod",
+                "description_unknown": "Bim Patche vom Spielcode isch e Konflikt uftrete. Eine vo dine Mods isch wahrschinlich d Ursach."
             },
             "outdated_loader": {
                 "title": "Outdated Mod Loader",
@@ -1177,7 +1181,11 @@
             "needs_version_installed": "\"{{modName}}\" needs \"{{dependencyName}}\" {{requiredVersion}}+, but installed is {{foundVersion}}.",
             "needs_version": "\"{{modName}}\" needs \"{{dependencyName}}\" in version {{requiredVersion}} or newer.",
             "missing_dependency": "Missing required dependency \"{{dependencyName}}\" for \"{{modName}}\".",
-            "generic_conflict": "A mod dependency conflict was detected."
+            "generic_conflict": "A mod dependency conflict was detected.",
+            "needs_version_installed_no_mod": "Bruucht „{{dependencyName}}“ {{requiredVersion}}+, installiert isch aber {{foundVersion}}.",
+            "needs_version_no_mod": "Bruucht „{{dependencyName}}“ i dr Version {{requiredVersion}} oder nöier.",
+            "missing_dependency_no_mod": "D benötigti Abhängigkeit „{{dependencyName}}“ fählt.",
+            "required_by": "Bruucht vo: {{affectedMods}}"
         }
     },
     "java_required_modal": {

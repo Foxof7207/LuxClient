@@ -52,7 +52,13 @@ const NEVER_SYNC_DIRS = new Set([
     'voxelmap',
     'replay_recordings',
     'replay_videos',
-    'tiles'
+    'tiles',
+
+    // WorldEdit entpackt hier Archive aus seiner eigenen JAR. Hunderte winziger,
+    // groesstenteils inhaltsgleicher Dateien, die der Mod beim naechsten Start
+    // ohnehin neu erzeugt -- sie gehoeren aus demselben Grund nicht in die Cloud
+    // wie die Caches darueber.
+    '.archive-unpack'
 ]);
 
 // Einzige Ausnahme von NEVER_SYNC_DIRS: Wegpunkte. Sie liegen bei mehreren Mods

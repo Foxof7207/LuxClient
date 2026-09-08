@@ -12,7 +12,8 @@ const DECISION = {
     OFFLINE: 'offline',
     NOT_LINKED: 'not-linked',
     DISABLED: 'disabled',
-    BUSY: 'busy'
+    BUSY: 'busy',
+    TRASHED: 'trashed'
 };
 
 function withTimeout(promise, ms) {
@@ -52,6 +53,12 @@ async function checkBeforeLaunch({
     const tracked = await readInstanceState(instanceId);
     if (!tracked || !tracked.cloudLinked) {
         return { decision: DECISION.NOT_LINKED, canLaunch: true };
+    }
+
+    // Nothing to reconcile against while the cloud copy sits in the trash, and the game
+    // must not be held up by a check the server will only reject.
+    if (tracked.trashed) {
+        return { decision: DECISION.TRASHED, canLaunch: true, lastSyncedAt: tracked.lastSyncedAt || null };
     }
 
     report('checking');

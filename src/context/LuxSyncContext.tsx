@@ -32,7 +32,8 @@ export type SyncStatus =
     | 'pending'
     | 'conflict'
     | 'offline'
-    | 'cloud-only';
+    | 'cloud-only'
+    | 'trashed';
 
 export type InstanceProgress = {
     phase: SyncPhase;
@@ -83,6 +84,7 @@ type LuxSyncApi = LuxSyncState & {
     dismissConflict: (instanceName: string) => void;
     dismissSessionWarning: () => void;
     dismissTransferFailure: (instanceName: string) => void;
+    clearStatus: (instanceName: string) => void;
     statusFor: (instanceName: string, instanceId?: string | null) => SyncStatus;
     activeTransfers: { instanceName: string; progress: InstanceProgress }[];
 };
@@ -240,11 +242,15 @@ export const LuxSyncProvider = ({
                 if (payload.event === 'error') {
                     nextStatuses[payload.instanceName] = payload.retryable ? 'pending' : 'conflict';
                 } else if (payload.event === 'done') {
-                    nextStatuses[payload.instanceName] = 'synced';
+                    // A skipped run is not a completed sync. Reporting the trashed case as
+                    // 'synced' was what made the panel claim everything was up to date.
+                    nextStatuses[payload.instanceName] = payload.result?.reason === 'instance_trashed'
+                        ? 'trashed'
+                        : 'synced';
                 }
                 return { ...current, statuses: nextStatuses };
             });
-            if (payload.event === 'done') refresh();
+            if (payload.event === 'done' && payload.result?.reason !== 'instance_trashed') refresh();
         };
 
         const onSessionWarning = (payload: any) => {
@@ -303,6 +309,13 @@ export const LuxSyncProvider = ({
                             changed: []
                         }
                     }
+                }));
+            } else if (result.error === 'instance_trashed') {
+                // A terminal state, not a pending one: nothing will change until the user
+                // restores the instance, so the indicator must stop suggesting a retry.
+                setState((current) => ({
+                    ...current,
+                    statuses: { ...current.statuses, [instanceName]: 'trashed' }
                 }));
             } else if (OFFLINE_CODES.has(result.error)) {
                 setState((current) => ({
@@ -364,6 +377,17 @@ export const LuxSyncProvider = ({
         });
     }, []);
 
+    // Drops a sticky status (a trashed instance that was restored, for instance) so
+    // statusFor falls back to deriving it from the cloud listing again.
+    const clearStatus = useCallback((instanceName: string) => {
+        setState((current) => {
+            if (!(instanceName in current.statuses)) return current;
+            const statuses = { ...current.statuses };
+            delete statuses[instanceName];
+            return { ...current, statuses };
+        });
+    }, []);
+
     const dismissSessionWarning = useCallback(() => patch({ sessionWarning: null }), [patch]);
 
     const statusFor = useCallback((instanceName: string, instanceId?: string | null): SyncStatus => {
@@ -394,10 +418,11 @@ export const LuxSyncProvider = ({
         dismissConflict,
         dismissSessionWarning,
         dismissTransferFailure,
+        clearStatus,
         statusFor,
         activeTransfers
     }), [state, refresh, syncInstance, restoreInstance, resolveConflict,
-        dismissConflict, dismissSessionWarning, dismissTransferFailure, statusFor, activeTransfers]);
+        dismissConflict, dismissSessionWarning, dismissTransferFailure, clearStatus, statusFor, activeTransfers]);
 
     return <LuxSyncContext.Provider value={value}>{children}</LuxSyncContext.Provider>;
 };

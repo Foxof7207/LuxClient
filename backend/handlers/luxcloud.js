@@ -13,7 +13,7 @@ const cloudPlaytime = require('../luxcloud/playtime');
 const preLaunch = require('../luxcloud/preLaunch');
 const uploader = require('../luxcloud/uploader');
 const luxState = require('../luxcloud/state');
-const { forgetInstance, readInstanceState, rememberRevision } = require('../luxcloud/syncState');
+const { forgetInstance, isTrashed, readInstanceState, rememberRevision, setTrashed } = require('../luxcloud/syncState');
 const { summarize } = require('../luxcloud/manifest');
 const { buildManifestInWorker } = require('../luxcloud/manifestRunner');
 const { getHashCacheDir } = require('../luxcloud/paths');
@@ -51,6 +51,19 @@ async function ensureInstanceIdFor(instanceDir, wanted = null) {
 
     const assigned = await ensureInstanceId(instanceDir);
     return assigned.instanceId;
+}
+
+// The auto-sync queue is keyed by folder name, while the cloud speaks in uuids, so
+// suspending and resuming an instance needs the translation between the two.
+async function nameForInstanceId(instanceUuid) {
+    const baseDir = resolvePrimaryInstancesDir();
+
+    for (const entry of await fs.readdir(baseDir, { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isDirectory()) continue;
+        const candidate = path.join(baseDir, entry.name);
+        if (await readInstanceId(candidate) === instanceUuid) return entry.name;
+    }
+    return null;
 }
 
 async function resolveRestoreDir(instanceUuid, targetName) {
@@ -321,6 +334,10 @@ module.exports = (ipcMain, mainWindow) => {
         const tracked = await readInstanceState(instanceId);
         if (!tracked || !tracked.cloudLinked) return { skipped: true, reason: 'not_linked' };
 
+        // A trashed instance can only be rejected by the server, so do not even try.
+        // Retrying on every change is what made the sync indicator run in circles.
+        if (tracked.trashed) return { skipped: true, reason: 'instance_trashed' };
+
         const me = await api.authed({ method: 'GET', url: '/api/cloud/me' });
         if (me.settings && me.settings.autoSync === false) return { skipped: true, reason: 'auto_sync_off' };
 
@@ -344,7 +361,11 @@ module.exports = (ipcMain, mainWindow) => {
                 retryable: payload.retryable,
                 error: payload.error ? { code: payload.error.code, message: payload.error.message } : undefined,
                 result: payload.result
-                    ? { revision: payload.result.revision, skipped: Boolean(payload.result.skipped) }
+                    ? {
+                        revision: payload.result.revision,
+                        skipped: Boolean(payload.result.skipped),
+                        reason: payload.result.reason
+                    }
                     : undefined
             });
         });
@@ -658,6 +679,14 @@ module.exports = (ipcMain, mainWindow) => {
                 method: 'POST',
                 url: `/api/cloud/instances/${encodeURIComponent(instanceUuid)}/restore`
             });
+
+            // The instance is out of the trash, so lift the local block and let the
+            // background queue pick it up again.
+            await setTrashed(instanceUuid, false).catch(() => {});
+            const restoredName = (result.instance && result.instance.name) || null;
+            const localName = (await nameForInstanceId(instanceUuid)) || restoredName;
+            if (localName) autoSync.resume(localName);
+
             return ok({ instance: result.instance });
         } catch (err) {
             return fail(err);
@@ -674,6 +703,19 @@ module.exports = (ipcMain, mainWindow) => {
             const instanceId = await ensureInstanceIdFor(instanceDir);
             if (!instanceId) {
                 return { success: false, error: 'no_instance_id', message: 'This instance has no id yet' };
+            }
+
+            // Answer straight from the local note instead of walking into a rejection the
+            // server has already given us once.
+            if (await isTrashed(instanceId)) {
+                autoSync.suspend(instanceName);
+                autoSync.cancel(instanceName);
+                return {
+                    success: false,
+                    error: 'instance_trashed',
+                    message: 'This instance is in the cloud trash. Restore it to sync again.',
+                    instanceUuid: instanceId
+                };
             }
 
             const me = await api.authed({ method: 'GET', url: '/api/cloud/me' });
@@ -696,7 +738,14 @@ module.exports = (ipcMain, mainWindow) => {
             const failure = fail(err);
             if (failure.error === 'instance_trashed') {
                 const dir = resolveInstanceDirByName(instanceName);
-                failure.instanceUuid = dir ? await readInstanceId(dir) : null;
+                const uuid = dir ? await readInstanceId(dir) : null;
+                failure.instanceUuid = uuid;
+
+                // Record it and stop the background queue, otherwise every later file
+                // change schedules another upload the server will reject again.
+                if (uuid) await setTrashed(uuid, true).catch(() => {});
+                autoSync.suspend(instanceName);
+                autoSync.cancel(instanceName);
             }
             return failure;
         }

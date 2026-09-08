@@ -210,7 +210,13 @@ async function restoreInstance({
                 if (resolved.source === 'unavailable') {
                     unavailable.push({ path: entry.path, reason: resolved.reason });
                 } else if (resolved.buffer) {
-                    const staged = path.join(stagingRoot, `${entry.sha256}.part`);
+                    // The staging name must be unique per entry, not per hash. A manifest
+                    // regularly lists the same content under several paths (mod archives
+                    // unpacked by WorldEdit alone produce hundreds of identical language
+                    // files), and with parallel workers two of them would otherwise write
+                    // and move the very same `<sha256>.part` — whoever moves second finds
+                    // the file already gone and the whole restore dies with ENOENT.
+                    const staged = path.join(stagingRoot, `${entry.sha256}-${crypto.randomBytes(8).toString('hex')}.part`);
                     await fs.writeFile(staged, resolved.buffer);
 
                     const target = path.join(instanceDir, entry.path);

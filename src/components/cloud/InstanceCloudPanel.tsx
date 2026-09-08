@@ -69,6 +69,11 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
     const status = sync ? sync.statusFor(instanceName, instanceId) : 'local';
     const progress = sync?.progress[instanceName];
 
+    const isTrashed = status === 'trashed' || Boolean(trashedUuid);
+    // A trashed instance is not in the 'active' listing, so its uuid has to come from the
+    // failed sync or from the local instance itself.
+    const restoreUuid = trashedUuid || cloudInstance?.instanceUuid || instanceId || null;
+
     const loadPlaytime = useCallback(async () => {
         const api = bridge();
         if (!api || typeof api.luxCloudGetPlaytime !== 'function') return;
@@ -105,17 +110,18 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
 
     const restoreFromTrash = async () => {
         const api = bridge();
-        if (!api || !trashedUuid || typeof api.luxCloudRestoreCloudInstance !== 'function') return;
+        if (!api || !restoreUuid || typeof api.luxCloudRestoreCloudInstance !== 'function') return;
 
         setBusy(true);
         try {
-            const result = await api.luxCloudRestoreCloudInstance(trashedUuid);
+            const result = await api.luxCloudRestoreCloudInstance(restoreUuid);
             if (result && result.success === false) {
                 setMessage(result.message || result.error);
                 return;
             }
             setTrashedUuid(null);
             setMessage(null);
+            sync?.clearStatus(instanceName);
             await sync?.refresh();
         } finally {
             setBusy(false);
@@ -190,8 +196,11 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
 
                 <button
                     type="button"
-                    disabled={busy || status === 'syncing'}
+                    disabled={busy || status === 'syncing' || isTrashed}
                     onClick={runSync}
+                    title={isTrashed
+                        ? t('cloud.instance.trashed', 'This instance is in the cloud trash. Restore it to sync again.')
+                        : undefined}
                     className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-xs text-white/70 transition hover:border-white/25 hover:text-white disabled:opacity-40"
                 >
                     <RefreshCw size={12} className={busy || status === 'syncing' ? 'animate-spin' : ''} />
@@ -343,21 +352,26 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
                 </p>
             )}
 
-            {message && (
+            {isTrashed ? (
+                <div className="mt-3 rounded-lg bg-white/[0.04] p-2.5">
+                    <p className="text-xs text-white/60">
+                        {message || t('cloud.instance.trashed',
+                            'This instance is in the cloud trash. Restore it to sync again.')}
+                    </p>
+                    <button
+                        type="button"
+                        disabled={busy || !restoreUuid}
+                        onClick={restoreFromTrash}
+                        className="mt-2 rounded-lg border border-emerald-400/30 px-2.5 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
+                    >
+                        {t('cloud.instance.restore_and_sync', 'Restore from trash and sync')}
+                    </button>
+                </div>
+            ) : message ? (
                 <div className="mt-3 rounded-lg bg-white/[0.04] p-2.5">
                     <p className="text-xs text-white/60">{message}</p>
-                    {trashedUuid && (
-                        <button
-                            type="button"
-                            disabled={busy}
-                            onClick={restoreFromTrash}
-                            className="mt-2 rounded-lg border border-emerald-400/30 px-2.5 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
-                        >
-                            {t('cloud.instance.restore_and_sync', 'Restore from trash and sync')}
-                        </button>
-                    )}
                 </div>
-            )}
+            ) : null}
 
             <WorldSelectionModal
                 open={showWorlds}
