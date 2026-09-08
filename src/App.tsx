@@ -36,6 +36,7 @@ import ThemeModeSelectionModal from './components/ThemeModeSelectionModal';
 import StartupModeSelectionModal from './components/StartupDefaultModeModal';
 import LoadingOverlay from './components/LoadingOverlay';
 import WindowControls from './components/WindowControls';
+import AccountSwitcher from './components/AccountSwitcher';
 import CrashModal from './components/CrashModal';
 import JavaRequiredModal from './components/JavaRequiredModal';
 import GuidePromptModal from './components/GuidePromptModal';
@@ -1102,6 +1103,26 @@ function App() {
     };
 
     const isLoginView = !userProfile && !isGuest;
+
+    const [savedAccounts, setSavedAccounts] = useState([]);
+
+    useEffect(() => {
+        if (!isLoginView) return;
+
+        let cancelled = false;
+        (async () => {
+            try {
+                const list = await window.electronAPI.getAccounts();
+                if (!cancelled) setSavedAccounts(Array.isArray(list) ? list : []);
+            } catch (e) {
+                if (!cancelled) setSavedAccounts([]);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [isLoginView]);
+
+    const showAccountSwitcher = isLoginView && savedAccounts.length > 0;
     const isLanguageSelectionOpen = !isInitialLoading && appSettings.hasSelectedLanguage === false;
     const isAgreementModalOpen = !isInitialLoading && appSettings.hasSelectedLanguage === true && appSettings.hasAcceptedToS === false;
     const isThemeModeSelectionOpen =
@@ -1326,7 +1347,14 @@ function App() {
 
     return (
         <ExtensionProvider>
-            {isLoginView ? (
+            {showAccountSwitcher ? (
+                <AccountSwitcher
+                    accounts={savedAccounts}
+                    isMaximized={isMaximized}
+                    onAccountsChanged={setSavedAccounts}
+                    onPicked={handleLoginSuccess}
+                />
+            ) : isLoginView ? (
                 <React.Suspense fallback={
                     <div className="h-screen w-screen flex items-center justify-center bg-background">
                         <div className="w-10 h-10 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
@@ -1455,7 +1483,8 @@ function App() {
                 </div>
             )}
 
-            {!userProfile && !isGuest && (
+            {/* Die Kontoauswahl bringt ihre eigenen Fenstersteuerungen mit. */}
+            {!userProfile && !isGuest && !showAccountSwitcher && (
                 <WindowControls isMaximized={isMaximized} className="fixed top-4 right-4 z-[10001] rounded-xl border border-border bg-popover/80 p-1 backdrop-blur-md" />
             )}
 

@@ -130,6 +130,15 @@ function TopBar({
     }
   };
 
+  const handleMinecraftLogout = async () => {
+    try {
+      await window.electronAPI.logout();
+    } catch (e) {
+      console.error('[TopBar] Minecraft logout failed:', e);
+    }
+    onProfileUpdate(null);
+  };
+
   const handleRemove = async (uuid) => {
     const res = await window.electronAPI.removeAccount(uuid);
     if (res.success) {
@@ -413,6 +422,12 @@ function TopBar({
                 <UserPlus className="h-4 w-4 mr-2" />
                 {t('common.add_account', 'Add Account')}
               </DropdownMenuItem>
+              {userProfile && (
+                <DropdownMenuItem onClick={handleMinecraftLogout}>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  {t('common.logout_minecraft', 'Sign out of Minecraft')}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
 
             <DropdownMenuSeparator />

@@ -104,7 +104,8 @@
         "useful_tools": "Useful Tools",
         "maintenance_title": "Under Maintenance",
         "maintenance_description": "This tab is currently unavailable, it will be added in a future update.",
-        "maintenance_back_home": "Back to homepage"
+        "maintenance_back_home": "Back to homepage",
+        "logout_minecraft": "Von Minecraft abmelden"
     },
     "client_page": {
         "title": "Open Client",
@@ -1354,5 +1355,11 @@
         "copied": "Projekt-Link in die Zwischenablage kopiert!",
         "copy_failed": "Projekt-Link konnte nicht kopiert werden.",
         "open_failed": "Projektseite konnte nicht geöffnet werden."
+    },
+    "account_switcher": {
+        "title": "Konto auswählen",
+        "subtitle": "Wähle das Minecraft-Konto, mit dem du spielen möchtest.",
+        "empty": "Keine gespeicherten Konten mehr. Füge eines hinzu, um fortzufahren.",
+        "remove": "Dieses Konto entfernen"
     }
 }
