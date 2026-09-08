@@ -18,6 +18,8 @@ const ICON_BASENAME = 'instance-icon';
 
 const SHA1_CATEGORIES = new Set([CATEGORY.MODS, CATEGORY.RESOURCEPACKS, CATEGORY.SHADERPACKS]);
 
+// Felder, die nur auf diesem Geraet gelten und deshalb nicht in die Cloud gehoeren.
+// Der Ziel-PC behaelt beim Restore seine eigenen Werte (siehe mergeInstanceConfig).
 const DEVICE_LOCAL_FIELDS = [
     'folderPath',
     'externalPath',
@@ -25,10 +27,18 @@ const DEVICE_LOCAL_FIELDS = [
     'status',
     'playtime',
     'lastPlayed',
-    'icon',
     'instanceType',
     'lastUsedVersion'
 ];
+
+// 'icon' ist ein Sonderfall und steht bewusst nicht in der Liste darueber: als
+// ausgelagerter Dateiname ist es der Verweis auf die mitsynchronisierte
+// instance-icon.* und gehoert damit zum Profil. Nur die alte Inline-Form (ein
+// base64-data-URI, bis zu 3 MB) wird verworfen -- die wuerde das Manifest aufblaehen,
+// und die Datei daneben transportiert dasselbe Bild bereits.
+function isInlineIcon(value) {
+    return typeof value === 'string' && value.startsWith('data:');
+}
 
 function sha256Of(buffer) {
     return crypto.createHash('sha256').update(buffer).digest('hex');
@@ -163,9 +173,56 @@ function normalizeInstanceConfig(config) {
     const normalized = {};
     for (const [key, value] of Object.entries(config || {})) {
         if (DEVICE_LOCAL_FIELDS.includes(key)) continue;
+        if (key === 'icon' && isInlineIcon(value)) continue;
         normalized[key] = value;
     }
     return normalized;
+}
+
+// Gegenstueck zu normalizeInstanceConfig fuer den Download: alles Synchronisierte kommt
+// aus der Cloud, die geraetelokalen Felder bleiben die dieses PCs. Ohne diesen Merge
+// wuerde ein Restore die normalisierte Fassung einfach darueberschreiben und dabei
+// javaPath, Spielzeit und den Installationszustand dieses Geraets loeschen.
+function mergeInstanceConfig(remoteConfig, localConfig) {
+    const merged = { ...(remoteConfig || {}) };
+    const local = localConfig || {};
+
+    for (const key of DEVICE_LOCAL_FIELDS) {
+        if (key in local) merged[key] = local[key];
+        else delete merged[key];
+    }
+
+    // Ein Icon aus der Cloud gewinnt, aber nur wenn es eines gibt -- Manifeste aus der
+    // Zeit vor dieser Aenderung fuehren gar kein icon-Feld, und dann darf das lokale
+    // Icon nicht verschwinden.
+    if (!merged.icon && local.icon) merged.icon = local.icon;
+
+    return merged;
+}
+
+// Der Server nimmt den Loader nur klein und ohne Sonderzeichen an (/^[a-z]{1,32}$/),
+// waehrend in der instance.json "Fabric" oder "NeoForge" steht. Ungeprueft
+// durchgereicht beantwortet er jeden Sync mit "Invalid loader" -- und zwar auch dann,
+// wenn der Nutzer nichts angefasst hat.
+const LOADER_RE = /^[a-z]{1,32}$/;
+const MC_VERSION_RE = /^[0-9A-Za-z._+-]{1,32}$/;
+const LOADER_VERSION_RE = /^[0-9A-Za-z._+-]{1,48}$/;
+
+function runtimeFromConfig(config) {
+    if (!config || typeof config !== 'object') return null;
+
+    const runtime = {};
+
+    const mcVersion = String(config.version || '').trim();
+    if (MC_VERSION_RE.test(mcVersion)) runtime.mcVersion = mcVersion;
+
+    const loader = String(config.loader || '').trim().toLowerCase();
+    if (LOADER_RE.test(loader)) runtime.loader = loader;
+
+    const loaderVersion = String(config.loaderVersion || '').trim();
+    if (LOADER_VERSION_RE.test(loaderVersion)) runtime.loaderVersion = loaderVersion;
+
+    return Object.keys(runtime).length > 0 ? runtime : null;
 }
 
 async function buildNormalizedInstanceJson(instanceDir) {
@@ -272,6 +329,28 @@ async function buildManifest(options) {
     }
 
     const instanceJson = await buildNormalizedInstanceJson(instanceDir);
+
+    // Niemand ruft buildManifest mit einem runtime auf, wodurch das Feld bisher immer
+    // leer blieb -- und mit ihm die Version-, Loader- und Loader-Version-Spalten der
+    // Cloud-Instanz, die daraus befuellt werden. Die Werte stehen in der instance.json,
+    // die hier ohnehin schon gelesen wurde.
+    const resolvedRuntime = runtime || runtimeFromConfig(instanceJson && instanceJson.config);
+
+    // Der Name kommt aus der instance.json, nicht aus dem Ordnernamen.
+    //
+    // Der Ordner kann auf jedem PC anders heissen -- schon ein zweiter Download legt
+    // "Name (1)" an, weil der alte Ordner noch existiert. Als Ordnername im Manifest
+    // machte das zwei Dinge kaputt: der Vergleichshash unterschied sich zwischen den
+    // Geraeten, sodass der erste Sync nach einem Download eine Revision erzeugte, obwohl
+    // niemand etwas geaendert hatte; und der zweite PC benannte die Cloud-Instanz nach
+    // seinem eigenen Ordner um. Die instance.json wird synchronisiert und ist damit auf
+    // beiden Seiten dieselbe Quelle.
+    const configuredName = instanceJson && instanceJson.config
+        && typeof instanceJson.config.name === 'string'
+        && instanceJson.config.name.trim().length > 0
+        ? instanceJson.config.name.trim()
+        : null;
+    const resolvedName = configuredName || name;
 
     for (const file of scan.files) {
         processed += 1;
@@ -386,11 +465,11 @@ async function buildManifest(options) {
     const manifest = {
         manifestVersion: MANIFEST_VERSION,
         instanceId,
-        name,
+        name: resolvedName,
         parentRevision,
         createdAt: Date.now(),
         device: device || undefined,
-        runtime: runtime || undefined,
+        runtime: resolvedRuntime || undefined,
         settings: settings || undefined,
         icon: icon || undefined,
         playtime: { totalMs: playtimeTotalMs },
@@ -455,7 +534,9 @@ module.exports = {
     buildManifest,
     buildNormalizedInstanceJson,
     contentHashOf,
+    mergeInstanceConfig,
     normalizeInstanceConfig,
+    saveModCacheUpdates,
     scanInstance,
     summarize
 };

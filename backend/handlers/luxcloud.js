@@ -14,6 +14,8 @@ const preLaunch = require('../luxcloud/preLaunch');
 const uploader = require('../luxcloud/uploader');
 const luxState = require('../luxcloud/state');
 const { forgetInstance, isTrashed, readInstanceState, rememberRevision, setTrashed } = require('../luxcloud/syncState');
+const { withSyncScope } = require('../luxcloud/syncScope');
+const transfers = require('../luxcloud/transfers');
 const { summarize } = require('../luxcloud/manifest');
 const { buildManifestInWorker } = require('../luxcloud/manifestRunner');
 const { getHashCacheDir } = require('../luxcloud/paths');
@@ -153,45 +155,6 @@ module.exports = (ipcMain, mainWindow) => {
         }
     });
 
-    async function fetchCloudScope(instanceId) {
-        try {
-            const result = await api.authed({ method: 'GET', url: '/api/cloud/instances?status=all' });
-            const found = (result.instances || []).find((entry) => entry.instanceUuid === String(instanceId));
-            if (!found) return null;
-            return {
-                syncWorlds: found.syncWorlds,
-                syncScreenshots: found.syncScreenshots,
-                crossPlatform: found.crossPlatform
-            };
-        } catch (err) {
-            console.warn(`[LuxCloud] Could not read the cloud sync scope (${err.code}), using the local one.`);
-            return null;
-        }
-    }
-
-    async function withSyncScope(instanceId, options = {}) {
-        const tracked = (await readInstanceState(String(instanceId)).catch(() => null)) || {};
-        const remote = await fetchCloudScope(instanceId);
-        const merged = { ...options };
-
-        for (const key of ['syncWorlds', 'syncScreenshots', 'crossPlatform']) {
-            if (typeof merged[key] === 'boolean') continue;
-            if (remote && typeof remote[key] === 'boolean') {
-                merged[key] = remote[key];
-                continue;
-            }
-            if (typeof tracked[key] === 'boolean') merged[key] = tracked[key];
-        }
-
-        if (remote) {
-            await rememberRevision(String(instanceId), remote).catch(() => {});
-        }
-        if (!Array.isArray(merged.worldNames) && Array.isArray(tracked.syncWorldNames)) {
-            merged.worldNames = tracked.syncWorldNames;
-        }
-
-        return merged;
-    }
 
     ipcMain.handle('luxcloud:update-instance-settings', async (_event, instanceUuid, patch) => {
         try {
@@ -341,7 +304,7 @@ module.exports = (ipcMain, mainWindow) => {
         const me = await api.authed({ method: 'GET', url: '/api/cloud/me' });
         if (me.settings && me.settings.autoSync === false) return { skipped: true, reason: 'auto_sync_off' };
 
-        return uploader.uploadInstance({
+        const result = await uploader.uploadInstance({
             instanceDir,
             instanceId,
             instanceName,
@@ -349,6 +312,19 @@ module.exports = (ipcMain, mainWindow) => {
             options: await withSyncScope(instanceId, { modCachePath: path.join(app.getPath('userData'), 'mod_cache.json') }),
             onProgress: (progress) => sendProgress('luxcloud:sync-progress', { ...progress, auto: true })
         });
+
+        // The background queue never pulls on its own - fetching files behind the user's
+        // back is not its job. It only reports that an update is waiting.
+        if (result.pullRequired) {
+            return {
+                skipped: true,
+                reason: result.contentUnchanged ? 'update_available' : 'revision_conflict',
+                revision: result.revision,
+                localRevision: result.localRevision
+            };
+        }
+
+        return result;
     });
 
     for (const event of ['start', 'done', 'error']) {
@@ -539,11 +515,36 @@ module.exports = (ipcMain, mainWindow) => {
                 instanceDir,
                 instanceId,
                 instanceName,
-                options,
+                // Der Umfang gehoert nicht in die Hand des Aufrufers: ohne ihn haelt der
+                // Dirty-Check Welten und Screenshots faelschlich fuer nicht synchronisiert.
+                options: await withSyncScope(instanceId, options),
                 onProgress: (progress) => sendProgress('luxcloud:pre-launch-progress', progress)
             });
 
             return ok(result);
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    // Deliberately cheap: just the recorded state, no directory scan. The instance panel
+    // calls this on every open to tell whether the cloud is ahead of this PC.
+    ipcMain.handle('luxcloud:local-revision', async (_event, instanceName) => {
+        try {
+            const instanceDir = resolveInstanceDirByName(instanceName);
+            if (!instanceDir) return ok({ linked: false, revision: 0 });
+
+            const instanceId = await readInstanceId(instanceDir);
+            if (!instanceId) return ok({ linked: false, revision: 0 });
+
+            const tracked = await readInstanceState(instanceId);
+            return ok({
+                instanceId,
+                linked: Boolean(tracked && tracked.cloudLinked),
+                revision: Number((tracked && tracked.lastKnownRevision) || 0),
+                trashed: Boolean(tracked && tracked.trashed),
+                lastSyncedAt: (tracked && tracked.lastSyncedAt) || null
+            });
         } catch (err) {
             return fail(err);
         }
@@ -603,6 +604,7 @@ module.exports = (ipcMain, mainWindow) => {
                     instanceUuid: instanceId,
                     instanceDir,
                     instanceName,
+                    modCachePath: path.join(app.getPath('userData'), 'mod_cache.json'),
                     onProgress: (progress) => sendProgress('luxcloud:restore-progress', progress)
                 });
                 return ok({ resolved: 'remote', backup, revision: restored.revision });
@@ -646,6 +648,28 @@ module.exports = (ipcMain, mainWindow) => {
     ipcMain.handle('luxcloud:auto-sync-state', async () => {
         try {
             return ok({ enabled: autoSync.isEnabled(), pending: autoSync.pendingInstances() });
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    ipcMain.handle('luxcloud:cancel-transfer', async (_event, instanceName) => {
+        try {
+            if (typeof instanceName === 'string' && instanceName.length > 0) {
+                // Auch die Warteschlange anhalten, sonst startet der Abbruch nur eine
+                // Pause bis zum naechsten Debounce.
+                autoSync.cancel(instanceName);
+                return ok({ cancelled: transfers.cancel(instanceName) });
+            }
+            return ok({ cancelled: transfers.cancelAll() > 0 });
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    ipcMain.handle('luxcloud:active-transfers', async () => {
+        try {
+            return ok({ transfers: transfers.list() });
         } catch (err) {
             return fail(err);
         }
@@ -732,6 +756,39 @@ module.exports = (ipcMain, mainWindow) => {
                 }),
                 onProgress: (progress) => sendProgress('luxcloud:sync-progress', progress)
             });
+
+            // "Sync" means bringing both sides together, not only pushing. When the cloud
+            // is ahead and nothing changed here, the honest answer is to fetch it - that
+            // is the update the user had no button for.
+            if (result.pullRequired) {
+                if (!result.contentUnchanged) {
+                    return {
+                        success: false,
+                        error: 'revision_conflict',
+                        message: 'This instance changed here and in the cloud.',
+                        details: {
+                            currentRevision: result.revision,
+                            localRevision: result.localRevision
+                        }
+                    };
+                }
+
+                const pulled = await downloader.restoreInstance({
+                    instanceUuid: instanceId,
+                    instanceDir,
+                    instanceName,
+                    modCachePath: path.join(app.getPath('userData'), 'mod_cache.json'),
+                    onProgress: (progress) => sendProgress('luxcloud:restore-progress', progress)
+                });
+
+                return ok({
+                    ...pulled,
+                    pulled: true,
+                    direction: 'download',
+                    previousRevision: result.localRevision,
+                    durationMs: Date.now() - started
+                });
+            }
 
             return ok({ ...result, durationMs: Date.now() - started });
         } catch (err) {

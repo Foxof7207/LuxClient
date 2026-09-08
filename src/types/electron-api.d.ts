@@ -276,6 +276,9 @@ interface ElectronAPI {
   luxCloudDeleteCloudData: () => Promise<any>;
   luxCloudPreLaunchCheck: (instanceName: string, options?: any) => Promise<any>;
   luxCloudDiffInstance: (instanceName: string, options?: any) => Promise<any>;
+  luxCloudLocalRevision: (instanceName: string) => Promise<any>;
+  luxCloudCancelTransfer: (instanceName?: string | null) => Promise<any>;
+  luxCloudActiveTransfers: () => Promise<any>;
   luxCloudResolveConflict: (instanceName: string, choice: 'local' | 'remote', options?: any) => Promise<any>;
   luxCloudRollback: (instanceUuid: string, revision: number) => Promise<any>;
   luxCloudAutoSyncState: () => Promise<any>;
@@ -283,4 +286,6 @@ interface ElectronAPI {
   onLuxCloudAutoSync: (callback: IpcCallback) => UnsubscribeFn;
   onLuxCloudPreLaunchProgress: (callback: IpcCallback) => UnsubscribeFn;
   onLuxCloudSessionWarning: (callback: IpcCallback) => UnsubscribeFn;
+  onLuxCloudLaunchBlocked: (callback: IpcCallback) => UnsubscribeFn;
+  onLuxCloudPreLaunchProgress: (callback: IpcCallback) => UnsubscribeFn;
 }

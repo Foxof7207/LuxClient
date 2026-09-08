@@ -11,6 +11,9 @@ type Props = {
     files?: number;
     done?: number;
     downloadedBytes?: number;
+    // Fehlt der Handler, wird kein Abbruch angeboten - bei 'ready' und 'offline' gibt es
+    // ohnehin nichts mehr abzubrechen.
+    onCancel?: (() => void) | null;
 };
 
 function formatBytes(bytes: number) {
@@ -26,7 +29,8 @@ export default function PreLaunchSyncOverlay({
     phase,
     files = 0,
     done = 0,
-    downloadedBytes = 0
+    downloadedBytes = 0,
+    onCancel = null
 }: Props) {
     const { t } = useTranslation();
     if (!visible) return null;
@@ -86,6 +90,16 @@ export default function PreLaunchSyncOverlay({
                 )}
 
                 <p className="mt-3 text-xs leading-relaxed text-white/50">{content.hint}</p>
+
+                {onCancel && (phase === 'checking' || phase === 'updating') && (
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="mt-4 w-full rounded-lg border border-white/10 px-3 py-2 text-xs text-white/60 transition hover:border-red-400/30 hover:text-red-300"
+                    >
+                        {t('cloud.prelaunch.cancel', 'Cancel and start anyway')}
+                    </button>
+                )}
             </div>
         </div>
     );
