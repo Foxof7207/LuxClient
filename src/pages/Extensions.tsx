@@ -100,7 +100,7 @@ const Extensions = () => {
                     console.error('Failed to notify download tracking', e);
                 }
 
-                refreshExtensions();
+                refreshExtensions({ reload: [result.id] });
             } else {
                 alert(`Failed to install: ${result.error}`);
             }
@@ -122,7 +122,7 @@ const Extensions = () => {
 
             const result = await window.electronAPI.installExtension(file.filePaths[0]);
             if (result.success) {
-                refreshExtensions();
+                refreshExtensions({ reload: [result.id] });
             } else {
                 alert(`Failed to install: ${result.error}`);
             }

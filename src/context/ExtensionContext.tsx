@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useNotification } from './NotificationContext';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -10,6 +10,7 @@ export const useExtensions = () => useContext(ExtensionContext);
 export const ExtensionProvider = ({ children }: { children: React.ReactNode }) => {
     const [installedExtensions, setInstalledExtensions] = useState([]);
     const [activeExtensions, setActiveExtensions] = useState<Record<string, any>>({});
+    const activeRef = useRef<Record<string, any>>({});
     const [views, setViews] = useState<Record<string, any[]>>({});
     const [hooks, setHooks] = useState<Record<string, any[]>>({});
     const [injectedStyles, setInjectedStyles] = useState<Record<string, HTMLStyleElement>>({});
@@ -160,8 +161,10 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
         return api;
     };
     const unloadExtension = async (extensionId) => {
-        const active = activeExtensions[extensionId];
+        const active = activeRef.current[extensionId];
         if (!active) return;
+
+        delete activeRef.current[extensionId];
 
         console.log(`[Extension] Unloading ${extensionId}...`);
         if (active.exports && typeof active.exports.deactivate === 'function') {
@@ -208,7 +211,7 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
         console.log(`[Extension] ${extensionId} unloaded.`);
     };
     const loadExtension = async (ext) => {
-        if (activeExtensions[ext.id]) return;
+        if (activeRef.current[ext.id]) return;
 
         try {
             console.log(`[Extension] Loading ${ext.id}...`);
@@ -233,12 +236,14 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
             const wrapper = new Function('require', 'exports', 'module', 'React', 'api', code);
             wrapper(customRequire, exports, module, window.React, api);
             const ExportedModule = module.exports;
+            activeRef.current[ext.id] = {
+                exports: ExportedModule,
+                api: api,
+                version: ext.version ?? null
+            };
             setActiveExtensions(prev => ({
                 ...prev,
-                [ext.id]: {
-                    exports: ExportedModule,
-                    api: api
-                }
+                [ext.id]: activeRef.current[ext.id]
             }));
             if (typeof ExportedModule.activate === 'function') {
                 await ExportedModule.activate(api);
@@ -282,23 +287,42 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
         }
     };
 
-    const refreshExtensions = async () => {
+    const refreshExtensions = async (options: { reload?: string[] } = {}) => {
         if (!EXTENSIONS_ENABLED) {
             setLoading(false);
             return;
         }
         if (!window.electronAPI) return;
 
+        const forced = new Set(options.reload || []);
+
         try {
             const result = await window.electronAPI.getExtensions();
             if (result.success) {
                 setInstalledExtensions(result.extensions);
 
+                const known = new Set(result.extensions.map((ext) => ext.id));
+                for (const id of Object.keys(activeRef.current)) {
+                    if (!known.has(id)) await unloadExtension(id);
+                }
+
                 for (const ext of result.extensions) {
-                    if (ext.enabled && !activeExtensions[ext.id]) {
+                    const active = activeRef.current[ext.id];
+
+                    if (!ext.enabled) {
+                        if (active) await unloadExtension(ext.id);
+                        continue;
+                    }
+
+                    if (!active) {
                         await loadExtension(ext);
-                    } else if (!ext.enabled && activeExtensions[ext.id]) {
+                        continue;
+                    }
+
+                    const changed = forced.has(ext.id) || active.version !== (ext.version ?? null);
+                    if (changed) {
                         await unloadExtension(ext.id);
+                        await loadExtension(ext);
                     }
                 }
             }
@@ -311,7 +335,10 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
     useEffect(() => {
         refreshExtensions();
 
-        const handleMarketplaceInstall = () => refreshExtensions();
+        const handleMarketplaceInstall = (event) => {
+            const id = event && event.detail ? event.detail.id : null;
+            refreshExtensions(id ? { reload: [id] } : {});
+        };
         window.addEventListener('luxclient:extension-installed', handleMarketplaceInstall);
 
         if (window.electronAPI && window.electronAPI.onExtensionFile) {
