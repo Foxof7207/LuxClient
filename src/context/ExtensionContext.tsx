@@ -4,6 +4,8 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const ExtensionContext = createContext<any>(null);
 const EXTENSIONS_ENABLED = true;
+const HEADER_SEARCH_POSITIONS = ['center', 'left', 'right', 'hidden'];
+const DEFAULT_HEADER_LAYOUT = { search: 'center' };
 
 export const useExtensions = () => useContext(ExtensionContext);
 
@@ -11,6 +13,7 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
     const [installedExtensions, setInstalledExtensions] = useState([]);
     const [activeExtensions, setActiveExtensions] = useState<Record<string, any>>({});
     const activeRef = useRef<Record<string, any>>({});
+    const [headerLayoutStack, setHeaderLayoutStack] = useState<{ extensionId: string; search: string }[]>([]);
     const [views, setViews] = useState<Record<string, any[]>>({});
     const [hooks, setHooks] = useState<Record<string, any[]>>({});
     const [injectedStyles, setInjectedStyles] = useState<Record<string, HTMLStyleElement>>({});
@@ -21,16 +24,34 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
     const createExtensionApi = (extensionId, localPath) => {
         const api = {
             ui: {
-                registerView: (slotName, component) => {
+                registerView: (slotName, component, options: { width?: number } = {}) => {
+                    const width = Number(options.width);
                     setViews(prev => {
                         const slotViews = prev[slotName] || [];
 
                         const filteredViews = slotViews.filter(v => v.extensionId !== extensionId);
                         return {
                             ...prev,
-                            [slotName]: [...filteredViews, { id: generateId(), extensionId, component, api }]
+                            [slotName]: [...filteredViews, {
+                                id: generateId(),
+                                extensionId,
+                                component,
+                                api,
+                                width: Number.isFinite(width) && width > 0 ? width : null
+                            }]
                         };
                     });
+                },
+                setHeaderLayout: (layout: { search?: string } = {}) => {
+                    const search = layout.search;
+                    if (!HEADER_SEARCH_POSITIONS.includes(search)) {
+                        console.warn(`[Extension:${extensionId}] Ignoring unknown header layout:`, layout);
+                        return;
+                    }
+                    setHeaderLayoutStack(prev => [
+                        ...prev.filter(entry => entry.extensionId !== extensionId),
+                        { extensionId, search }
+                    ]);
                 },
                 toast: (message, type = 'info') => {
                     console.log(`[Extension:${extensionId}] Toast: ${message} (${type})`);
@@ -165,6 +186,7 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
         if (!active) return;
 
         delete activeRef.current[extensionId];
+        setHeaderLayoutStack(prev => prev.filter(entry => entry.extensionId !== extensionId));
 
         console.log(`[Extension] Unloading ${extensionId}...`);
         if (active.exports && typeof active.exports.deactivate === 'function') {
@@ -371,6 +393,13 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
 
     const getViews = (slotName) => views[slotName] || [];
 
+    const getSlotWidth = (slotName) => (views[slotName] || [])
+        .reduce((sum, view) => sum + (Number(view.width) || 0), 0);
+
+    const headerLayout = headerLayoutStack.length > 0
+        ? { search: headerLayoutStack[headerLayoutStack.length - 1].search }
+        : DEFAULT_HEADER_LAYOUT;
+
     return (
         <ExtensionContext.Provider value={{
             extensionsEnabled: EXTENSIONS_ENABLED,
@@ -380,6 +409,8 @@ export const ExtensionProvider = ({ children }: { children: React.ReactNode }) =
             registeredTabs,
             settingsSections,
             getViews,
+            getSlotWidth,
+            headerLayout,
             loadExtension,
             unloadExtension,
             toggleExtension,

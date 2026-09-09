@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isFeatureEnabled } from '../config/featureFlags';
 import ExtensionSlot from './Extensions/ExtensionSlot';
+import { useExtensions } from '../context/ExtensionContext';
 import PlayerHead from './PlayerHead';
 import WindowControls from './WindowControls';
 import CloudTransferPanel from './cloud/CloudTransferPanel';
@@ -64,6 +65,8 @@ function TopBar({
 }: TopBarProps) {
   const { t } = useTranslation();
   const luxAccount = useLuxAccount();
+  const extensions = useExtensions();
+  const searchPosition = (extensions && extensions.headerLayout && extensions.headerLayout.search) || 'center';
   const [accounts, setAccounts] = useState([]);
   const [liveSkin, setLiveSkin] = useState(null);
   const [actionBarOpen, setActionBarOpen] = useState(false);
@@ -177,9 +180,26 @@ function TopBar({
     }] : [])
   ];
 
+  const searchButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-10 w-full max-w-[280px] min-w-0 gap-2 rounded-xl border-border/50 bg-background/50 px-2 lg:px-4 text-sm text-muted-foreground justify-start"
+      onClick={onOpenCommandPalette}
+      disabled={!isCommandPaletteAvailable}
+    >
+      <Search className="h-4 w-4 shrink-0" />
+      <span className="hidden md:inline truncate">{t('dashboard.search_placeholder', 'Search...')}</span>
+      <kbd className="hidden lg:inline-flex ml-auto pointer-events-none h-6 select-none items-center gap-1 rounded-md border border-border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground">
+        Ctrl+K
+      </kbd>
+    </Button>
+  );
+
   return (
-    <div className="h-16 w-full titlebar flex items-center justify-between px-3 lg:px-5 border-b border-border bg-background/80 backdrop-blur-md flex-none relative z-[60]">
+    <div className="h-16 w-full titlebar flex items-center gap-2 px-3 lg:px-5 border-b border-border bg-background/80 backdrop-blur-md flex-none relative z-[60]">
       <div className="flex items-center gap-1.5 lg:gap-2.5 no-drag shrink-0">
+        <ExtensionSlot name="header.left" className="flex min-w-0 items-center gap-2 overflow-hidden" />
         <div className="w-10 h-10 bg-primary/15 rounded-xl flex items-center justify-center text-primary font-bold text-base border border-primary/20 overflow-hidden">
           <img src="./icon.png" alt="Lux" className="w-full h-full object-cover" />
         </div>
@@ -269,29 +289,18 @@ function TopBar({
             <span className="hidden lg:inline">{t('common.news', 'News')}</span>
           </Button>
         </>
+
+        {searchPosition === 'left' && searchButton}
       </div>
 
-      <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 no-drag pointer-events-none" style={{ maxWidth: 'calc(100% - 480px)' }}>
-        <div className="pointer-events-auto flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-10 w-full max-w-[280px] gap-2 rounded-xl border-border/50 bg-background/50 px-2 lg:px-4 text-sm text-muted-foreground justify-start"
-            onClick={onOpenCommandPalette}
-            disabled={!isCommandPaletteAvailable}
-          >
-            <Search className="h-4 w-4 shrink-0" />
-            <span className="hidden md:inline truncate">{t('dashboard.search_placeholder', 'Search...')}</span>
-            <kbd className="hidden lg:inline-flex ml-auto pointer-events-none h-6 select-none items-center gap-1 rounded-md border border-border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground">
-              Ctrl+K
-            </kbd>
-          </Button>
-          <ExtensionSlot name="header.center" className="flex items-center gap-2" />
-        </div>
+      <div className="flex flex-1 min-w-0 items-center justify-center gap-2 no-drag">
+        {searchPosition === 'center' && searchButton}
+        <ExtensionSlot name="header.center" className="flex min-w-0 items-center gap-2 overflow-hidden" />
       </div>
 
       <div className="flex items-center justify-end gap-1.5 lg:gap-2 no-drag shrink-0">
-        <ExtensionSlot name="header.right" className="hidden sm:flex items-center gap-2" />
+        {searchPosition === 'right' && searchButton}
+        <ExtensionSlot name="header.right" className="hidden sm:flex min-w-0 items-center gap-2 overflow-hidden" />
 
         {activeDownloadCount > 0 && (
           <DropdownMenu>
