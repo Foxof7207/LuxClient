@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 
 const { getStateFile } = require('./paths');
 const { writeJsonAtomic, readJsonSafe } = require('./atomicJson');
-const { encryptToken, decryptToken } = require('../utils/secureProfileStore');
+const { encryptToken, decryptTokenDetailed } = require('../utils/secureProfileStore');
 
 const EMPTY_STATE = {
     version: 1,
@@ -15,6 +15,7 @@ const EMPTY_STATE = {
 };
 
 let cache = null;
+let warnedUnreadable = false;
 
 function newDeviceUuid() {
     return crypto.randomUUID().replace(/-/g, '');
@@ -37,11 +38,32 @@ async function readState() {
         return cache;
     }
 
+    const access = decryptTokenDetailed(raw.accessTokenEnc);
+    const refresh = decryptTokenDetailed(raw.refreshTokenEnc);
+
+    // A stored session that will not decrypt used to arrive here as "no tokens", which
+    // is indistinguishable from being signed out - the account panel simply showed the
+    // sign-in button again and every sync stopped without ever saying why. Keep the
+    // distinction so the UI can tell the user that the keyring, not the account, is the
+    // problem. This is what a Flatpak build without access to org.freedesktop.secrets
+    // runs into: the tokens were written under a different safeStorage backend.
+    const unreadable = refresh.status === 'unavailable' || refresh.status === 'failed'
+        || access.status === 'unavailable' || access.status === 'failed';
+
+    if (unreadable && !warnedUnreadable) {
+        warnedUnreadable = true;
+        console.warn(
+            `[LuxCloud] The stored session could not be decrypted (${refresh.status}). `
+            + 'The OS keyring is answering differently than when it was saved - signing in again will fix it.'
+        );
+    }
+
     cache = {
         ...EMPTY_STATE,
         ...raw,
-        accessToken: decryptToken(raw.accessTokenEnc) || null,
-        refreshToken: decryptToken(raw.refreshTokenEnc) || null
+        accessToken: access.value || null,
+        refreshToken: refresh.value || null,
+        sessionUnreadable: unreadable
     };
     delete cache.accessTokenEnc;
     delete cache.refreshTokenEnc;
@@ -50,13 +72,16 @@ async function readState() {
 
 async function writeState(next) {
     const stored = { ...next };
+    delete stored.sessionUnreadable;
     stored.accessTokenEnc = next.accessToken ? encryptToken(next.accessToken) : null;
     stored.refreshTokenEnc = next.refreshToken ? encryptToken(next.refreshToken) : null;
     delete stored.accessToken;
     delete stored.refreshToken;
 
     await writeJsonAtomic(getStateFile(), stored);
-    cache = { ...next };
+    // Anything we just wrote we can read back, so a previous decrypt failure is over.
+    cache = { ...next, sessionUnreadable: false };
+    warnedUnreadable = false;
     return cache;
 }
 
@@ -100,6 +125,7 @@ async function updateTokens({ accessToken, refreshToken, expiresIn }) {
 
 async function clearSession() {
     cache = { ...EMPTY_STATE };
+    warnedUnreadable = false;
     await fs.remove(getStateFile()).catch(() => {});
     return cache;
 }

@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const crypto = require('crypto');
 const pkg = require('../package.json');
+const { describeSandbox } = require('../backend/utils/sandbox');
 
 if (process.platform === 'linux' && process.env.XDG_CURRENT_DESKTOP === 'COSMIC') {
     process.env.XDG_CURRENT_DESKTOP = 'Unity';
@@ -994,7 +995,15 @@ app.on('open-url', (event, url) => {
 });
 
 app.whenReady().then(() => {
-    if (!app.isPackaged) {
+    const sandbox = describeSandbox();
+    if (sandbox.confined) {
+        // Registering a scheme from inside a Flatpak/Snap sandbox cannot work: the write
+        // lands in the sandboxed ~/.local/share the host never reads, and process.execPath
+        // points at a path that only exists in here. The handler has to come from the
+        // package's own desktop entry (MimeType=x-scheme-handler/luxclient) instead, so
+        // do not pretend otherwise - the sign-in falls back to the pairing code.
+        console.log(`[DeepLink] ${sandbox.kind} build (${sandbox.appId || 'unknown app id'}) — leaving luxclient:// registration to the package.`);
+    } else if (!app.isPackaged) {
         const appPath = app.getAppPath();
         const result = app.setAsDefaultProtocolClient('luxclient', process.execPath, [appPath]);
         console.log('[DeepLink] dev mode registration — execPath:', process.execPath);
