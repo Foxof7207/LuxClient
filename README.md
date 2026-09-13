@@ -159,6 +159,14 @@ Built with **Vite** for fast builds, **Framer Motion** for animations, and **Rad
 
 ---
 
+## DeepWiki Guide
+
+For a more detailed guide about Lux-Client, you can read our DeepWiki guide!
+
+> Access it at: [deepwiki.com/Lux-Client/Lux-Client](https://deepwiki.com/Lux-Client/Lux-Client)
+
+---
+
 ## License
 
 [PolyForm Shield License 1.0.0](LICENSE.md) — not an open-source license. See `LICENSE.md` for details.
