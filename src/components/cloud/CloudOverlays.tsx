@@ -6,6 +6,7 @@ import { useLuxAccount } from '../../context/LuxAccountContext';
 import { useLuxSync } from '../../context/LuxSyncContext';
 import SyncConflictModal from './SyncConflictModal';
 import CloudOnboardingModal from './CloudOnboardingModal';
+import PreLaunchSyncOverlay from './PreLaunchSyncOverlay';
 
 const ONBOARDING_KEY = 'lux.cloud.onboarding.seen';
 
@@ -82,6 +83,18 @@ export default function CloudOverlays() {
                 localInstances={localInstances}
                 quota={account.quota}
                 onClose={closeOnboarding}
+            />
+
+            <PreLaunchSyncOverlay
+                visible={Boolean(sync?.preLaunch)}
+                instanceName={sync?.preLaunch?.instanceName || ''}
+                phase={sync?.preLaunch?.phase || 'checking'}
+                files={sync?.preLaunch?.files}
+                done={sync?.preLaunch?.done}
+                downloadedBytes={sync?.preLaunch?.downloadedBytes}
+                onCancel={sync?.preLaunch
+                    ? () => sync.cancelTransfer(sync.preLaunch!.instanceName)
+                    : null}
             />
 
             <SyncConflictModal

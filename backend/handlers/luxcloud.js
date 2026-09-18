@@ -7,13 +7,24 @@ const api = require('../luxcloud/api');
 const auth = require('../luxcloud/auth');
 const autoSync = require('../luxcloud/autoSync');
 const blobStore = require('../luxcloud/blobStore');
+const changeMonitor = require('../luxcloud/changeMonitor');
 const conflict = require('../luxcloud/conflict');
 const downloader = require('../luxcloud/downloader');
 const cloudPlaytime = require('../luxcloud/playtime');
 const preLaunch = require('../luxcloud/preLaunch');
 const uploader = require('../luxcloud/uploader');
 const luxState = require('../luxcloud/state');
-const { forgetInstance, readInstanceState, rememberRevision } = require('../luxcloud/syncState');
+const { scopeOf } = require('../luxcloud/localChanges');
+const {
+    forgetInstance,
+    isTrashed,
+    listTrackedInstances,
+    readInstanceState,
+    rememberRevision,
+    setTrashed
+} = require('../luxcloud/syncState');
+const { withSyncScope } = require('../luxcloud/syncScope');
+const transfers = require('../luxcloud/transfers');
 const { summarize } = require('../luxcloud/manifest');
 const { buildManifestInWorker } = require('../luxcloud/manifestRunner');
 const { getHashCacheDir } = require('../luxcloud/paths');
@@ -51,6 +62,57 @@ async function ensureInstanceIdFor(instanceDir, wanted = null) {
 
     const assigned = await ensureInstanceId(instanceDir);
     return assigned.instanceId;
+}
+
+// The auto-sync queue is keyed by folder name, while the cloud speaks in uuids, so
+// suspending and resuming an instance needs the translation between the two.
+async function nameForInstanceId(instanceUuid) {
+    const baseDir = resolvePrimaryInstancesDir();
+
+    for (const entry of await fs.readdir(baseDir, { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isDirectory()) continue;
+        const candidate = path.join(baseDir, entry.name);
+        if (await readInstanceId(candidate) === instanceUuid) return entry.name;
+    }
+    return null;
+}
+
+// Welche Instanzen die Hintergrundkontrolle ueberhaupt ansehen muss.
+//
+// Ausgelassen wird, was gerade gespielt wird (dafuer gibt es den Anstoss nach dem
+// Spielen) und was ohnehin gerade uebertragen wird -- in beiden Faellen ist der Ordner in
+// Bewegung, und ein Fingerabdruck davon sagt nichts.
+async function collectSyncCandidates() {
+    if (!await luxState.isLoggedIn().catch(() => false)) return [];
+
+    const candidates = [];
+
+    for (const entry of await listTrackedInstances().catch(() => [])) {
+        if (!entry.cloudLinked || entry.trashed) continue;
+
+        let instanceName = entry.instanceName || null;
+        let instanceDir = instanceName ? resolveInstanceDirByName(instanceName) : null;
+
+        // Der Ordner kann seit dem letzten Sync umbenannt worden sein; dann gilt die UUID.
+        if (!instanceDir) {
+            instanceName = await nameForInstanceId(entry.instanceId).catch(() => null);
+            instanceDir = instanceName ? resolveInstanceDirByName(instanceName) : null;
+        }
+
+        if (!instanceName || !instanceDir) continue;
+        if (autoSync.isSuspended(instanceName)) continue;
+        if (transfers.list().some((transfer) => transfer.instanceName === instanceName)) continue;
+
+        candidates.push({
+            instanceId: entry.instanceId,
+            instanceName,
+            instanceDir,
+            options: scopeOf(entry),
+            lastSignature: entry.lastLocalSignature || null
+        });
+    }
+
+    return candidates;
 }
 
 async function resolveRestoreDir(instanceUuid, targetName) {
@@ -140,45 +202,6 @@ module.exports = (ipcMain, mainWindow) => {
         }
     });
 
-    async function fetchCloudScope(instanceId) {
-        try {
-            const result = await api.authed({ method: 'GET', url: '/api/cloud/instances?status=all' });
-            const found = (result.instances || []).find((entry) => entry.instanceUuid === String(instanceId));
-            if (!found) return null;
-            return {
-                syncWorlds: found.syncWorlds,
-                syncScreenshots: found.syncScreenshots,
-                crossPlatform: found.crossPlatform
-            };
-        } catch (err) {
-            console.warn(`[LuxCloud] Could not read the cloud sync scope (${err.code}), using the local one.`);
-            return null;
-        }
-    }
-
-    async function withSyncScope(instanceId, options = {}) {
-        const tracked = (await readInstanceState(String(instanceId)).catch(() => null)) || {};
-        const remote = await fetchCloudScope(instanceId);
-        const merged = { ...options };
-
-        for (const key of ['syncWorlds', 'syncScreenshots', 'crossPlatform']) {
-            if (typeof merged[key] === 'boolean') continue;
-            if (remote && typeof remote[key] === 'boolean') {
-                merged[key] = remote[key];
-                continue;
-            }
-            if (typeof tracked[key] === 'boolean') merged[key] = tracked[key];
-        }
-
-        if (remote) {
-            await rememberRevision(String(instanceId), remote).catch(() => {});
-        }
-        if (!Array.isArray(merged.worldNames) && Array.isArray(tracked.syncWorldNames)) {
-            merged.worldNames = tracked.syncWorldNames;
-        }
-
-        return merged;
-    }
 
     ipcMain.handle('luxcloud:update-instance-settings', async (_event, instanceUuid, patch) => {
         try {
@@ -294,6 +317,14 @@ module.exports = (ipcMain, mainWindow) => {
                 url: '/api/cloud/me/settings',
                 data: patch || {}
             });
+
+            // Wer den automatischen Sync gerade wieder einschaltet, erwartet nicht, jede
+            // Datei noch einmal anfassen zu muessen, damit sie doch noch hochgeht.
+            if (patch && patch.autoSync === true) {
+                changeMonitor.forgetAll();
+                changeMonitor.scan().catch(() => {});
+            }
+
             return ok({ settings: result.settings });
         } catch (err) {
             return fail(err);
@@ -321,10 +352,14 @@ module.exports = (ipcMain, mainWindow) => {
         const tracked = await readInstanceState(instanceId);
         if (!tracked || !tracked.cloudLinked) return { skipped: true, reason: 'not_linked' };
 
+        // A trashed instance can only be rejected by the server, so do not even try.
+        // Retrying on every change is what made the sync indicator run in circles.
+        if (tracked.trashed) return { skipped: true, reason: 'instance_trashed' };
+
         const me = await api.authed({ method: 'GET', url: '/api/cloud/me' });
         if (me.settings && me.settings.autoSync === false) return { skipped: true, reason: 'auto_sync_off' };
 
-        return uploader.uploadInstance({
+        const result = await uploader.uploadInstance({
             instanceDir,
             instanceId,
             instanceName,
@@ -332,9 +367,40 @@ module.exports = (ipcMain, mainWindow) => {
             options: await withSyncScope(instanceId, { modCachePath: path.join(app.getPath('userData'), 'mod_cache.json') }),
             onProgress: (progress) => sendProgress('luxcloud:sync-progress', { ...progress, auto: true })
         });
+
+        // The background queue never pulls on its own - fetching files behind the user's
+        // back is not its job. It only reports that an update is waiting.
+        if (result.pullRequired) {
+            return {
+                skipped: true,
+                reason: result.contentUnchanged ? 'update_available' : 'revision_conflict',
+                revision: result.revision,
+                localRevision: result.localRevision
+            };
+        }
+
+        return result;
     });
 
-    for (const event of ['start', 'done', 'error']) {
+    // Ein Upload braucht einen Ausloeser. Bis hierher gab es genau einen -- das Ende einer
+    // Spielsitzung. Wer eine Mod loeschte oder eine Einstellung aenderte, ohne danach zu
+    // spielen, sah in der Cloud nie etwas davon und musste "Jetzt synchronisieren"
+    // druecken. Diese Kontrolle bemerkt die Aenderung von allein.
+    changeMonitor.configure({
+        candidates: collectSyncCandidates,
+        onChanged: ({ instanceName, instanceId, files, firstCheck }) => {
+            console.log(`[LuxCloud] "${instanceName}" changed locally (${files} synced files`
+                + `${firstCheck ? ', first check since this update' : ''}) - queueing an upload.`);
+            const queued = autoSync.notifyChanged(instanceName, 'local-change');
+
+            // Abgelehnt (Auto-Sync aus, Instanz pausiert): dann darf die Meldung nicht als
+            // erledigt gelten, sonst faellt dieselbe Aenderung spaeter unter den Tisch.
+            if (!queued) changeMonitor.forget(instanceId);
+        }
+    });
+    changeMonitor.start();
+
+    for (const event of ['scheduled', 'start', 'done', 'error']) {
         autoSync.events.on(event, (payload) => {
             sendProgress('luxcloud:auto-sync', {
                 event,
@@ -344,7 +410,11 @@ module.exports = (ipcMain, mainWindow) => {
                 retryable: payload.retryable,
                 error: payload.error ? { code: payload.error.code, message: payload.error.message } : undefined,
                 result: payload.result
-                    ? { revision: payload.result.revision, skipped: Boolean(payload.result.skipped) }
+                    ? {
+                        revision: payload.result.revision,
+                        skipped: Boolean(payload.result.skipped),
+                        reason: payload.result.reason
+                    }
                     : undefined
             });
         });
@@ -518,11 +588,36 @@ module.exports = (ipcMain, mainWindow) => {
                 instanceDir,
                 instanceId,
                 instanceName,
-                options,
+                // Der Umfang gehoert nicht in die Hand des Aufrufers: ohne ihn haelt der
+                // Dirty-Check Welten und Screenshots faelschlich fuer nicht synchronisiert.
+                options: await withSyncScope(instanceId, options),
                 onProgress: (progress) => sendProgress('luxcloud:pre-launch-progress', progress)
             });
 
             return ok(result);
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    // Deliberately cheap: just the recorded state, no directory scan. The instance panel
+    // calls this on every open to tell whether the cloud is ahead of this PC.
+    ipcMain.handle('luxcloud:local-revision', async (_event, instanceName) => {
+        try {
+            const instanceDir = resolveInstanceDirByName(instanceName);
+            if (!instanceDir) return ok({ linked: false, revision: 0 });
+
+            const instanceId = await readInstanceId(instanceDir);
+            if (!instanceId) return ok({ linked: false, revision: 0 });
+
+            const tracked = await readInstanceState(instanceId);
+            return ok({
+                instanceId,
+                linked: Boolean(tracked && tracked.cloudLinked),
+                revision: Number((tracked && tracked.lastKnownRevision) || 0),
+                trashed: Boolean(tracked && tracked.trashed),
+                lastSyncedAt: (tracked && tracked.lastSyncedAt) || null
+            });
         } catch (err) {
             return fail(err);
         }
@@ -582,6 +677,7 @@ module.exports = (ipcMain, mainWindow) => {
                     instanceUuid: instanceId,
                     instanceDir,
                     instanceName,
+                    modCachePath: path.join(app.getPath('userData'), 'mod_cache.json'),
                     onProgress: (progress) => sendProgress('luxcloud:restore-progress', progress)
                 });
                 return ok({ resolved: 'remote', backup, revision: restored.revision });
@@ -624,7 +720,33 @@ module.exports = (ipcMain, mainWindow) => {
 
     ipcMain.handle('luxcloud:auto-sync-state', async () => {
         try {
-            return ok({ enabled: autoSync.isEnabled(), pending: autoSync.pendingInstances() });
+            return ok({
+                enabled: autoSync.isEnabled(),
+                pending: autoSync.pendingInstances(),
+                monitoring: changeMonitor.isRunning()
+            });
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    ipcMain.handle('luxcloud:cancel-transfer', async (_event, instanceName) => {
+        try {
+            if (typeof instanceName === 'string' && instanceName.length > 0) {
+                // Auch die Warteschlange anhalten, sonst startet der Abbruch nur eine
+                // Pause bis zum naechsten Debounce.
+                autoSync.cancel(instanceName);
+                return ok({ cancelled: transfers.cancel(instanceName) });
+            }
+            return ok({ cancelled: transfers.cancelAll() > 0 });
+        } catch (err) {
+            return fail(err);
+        }
+    });
+
+    ipcMain.handle('luxcloud:active-transfers', async () => {
+        try {
+            return ok({ transfers: transfers.list() });
         } catch (err) {
             return fail(err);
         }
@@ -658,6 +780,14 @@ module.exports = (ipcMain, mainWindow) => {
                 method: 'POST',
                 url: `/api/cloud/instances/${encodeURIComponent(instanceUuid)}/restore`
             });
+
+            // The instance is out of the trash, so lift the local block and let the
+            // background queue pick it up again.
+            await setTrashed(instanceUuid, false).catch(() => {});
+            const restoredName = (result.instance && result.instance.name) || null;
+            const localName = (await nameForInstanceId(instanceUuid)) || restoredName;
+            if (localName) autoSync.resume(localName);
+
             return ok({ instance: result.instance });
         } catch (err) {
             return fail(err);
@@ -676,6 +806,19 @@ module.exports = (ipcMain, mainWindow) => {
                 return { success: false, error: 'no_instance_id', message: 'This instance has no id yet' };
             }
 
+            // Answer straight from the local note instead of walking into a rejection the
+            // server has already given us once.
+            if (await isTrashed(instanceId)) {
+                autoSync.suspend(instanceName);
+                autoSync.cancel(instanceName);
+                return {
+                    success: false,
+                    error: 'instance_trashed',
+                    message: 'This instance is in the cloud trash. Restore it to sync again.',
+                    instanceUuid: instanceId
+                };
+            }
+
             const me = await api.authed({ method: 'GET', url: '/api/cloud/me' });
             const started = Date.now();
 
@@ -691,12 +834,52 @@ module.exports = (ipcMain, mainWindow) => {
                 onProgress: (progress) => sendProgress('luxcloud:sync-progress', progress)
             });
 
+            // "Sync" means bringing both sides together, not only pushing. When the cloud
+            // is ahead and nothing changed here, the honest answer is to fetch it - that
+            // is the update the user had no button for.
+            if (result.pullRequired) {
+                if (!result.contentUnchanged) {
+                    return {
+                        success: false,
+                        error: 'revision_conflict',
+                        message: 'This instance changed here and in the cloud.',
+                        details: {
+                            currentRevision: result.revision,
+                            localRevision: result.localRevision
+                        }
+                    };
+                }
+
+                const pulled = await downloader.restoreInstance({
+                    instanceUuid: instanceId,
+                    instanceDir,
+                    instanceName,
+                    modCachePath: path.join(app.getPath('userData'), 'mod_cache.json'),
+                    onProgress: (progress) => sendProgress('luxcloud:restore-progress', progress)
+                });
+
+                return ok({
+                    ...pulled,
+                    pulled: true,
+                    direction: 'download',
+                    previousRevision: result.localRevision,
+                    durationMs: Date.now() - started
+                });
+            }
+
             return ok({ ...result, durationMs: Date.now() - started });
         } catch (err) {
             const failure = fail(err);
             if (failure.error === 'instance_trashed') {
                 const dir = resolveInstanceDirByName(instanceName);
-                failure.instanceUuid = dir ? await readInstanceId(dir) : null;
+                const uuid = dir ? await readInstanceId(dir) : null;
+                failure.instanceUuid = uuid;
+
+                // Record it and stop the background queue, otherwise every later file
+                // change schedules another upload the server will reject again.
+                if (uuid) await setTrashed(uuid, true).catch(() => {});
+                autoSync.suspend(instanceName);
+                autoSync.cancel(instanceName);
             }
             return failure;
         }

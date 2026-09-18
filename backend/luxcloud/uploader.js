@@ -6,7 +6,10 @@ const api = require('./api');
 const blobStore = require('./blobStore');
 const { compressIfWorthwhile } = require('./compression');
 const { buildManifestInWorker } = require('./manifestRunner');
+const localChanges = require('./localChanges');
 const { readInstanceState, rememberRevision } = require('./syncState');
+const transfers = require('./transfers');
+const manifestSnapshot = require('./manifestSnapshot');
 const { seedIfNeeded: seedPlaytime, push: pushPlaytime } = require('./playtime');
 
 const BATCH_THRESHOLD_BYTES = 256 * 1024;
@@ -160,7 +163,7 @@ async function ensureCloudInstance({ instanceUuid, manifest, options }) {
     return result.instance;
 }
 
-async function uploadInstance({
+async function runUpload({
     instanceDir,
     instanceId,
     instanceName,
@@ -171,10 +174,24 @@ async function uploadInstance({
     const report = (phase, detail = {}) => {
         if (onProgress) onProgress({ instanceName, instanceId, phase, ...detail });
     };
+    const stopIfCancelled = () => transfers.throwIfCancelled(instanceName);
 
     const supported = Array.isArray(capabilities.compression) ? capabilities.compression : ['none'];
     const maxBatchBytes = Number(capabilities.maxBatchBytes) || DEFAULT_MAX_BATCH_BYTES;
     const maxBatchEntries = Number(capabilities.maxBatchEntries) || DEFAULT_MAX_BATCH_ENTRIES;
+
+    // Muss VOR dem Manifest genommen werden: was waehrend des Uploads noch geschrieben
+    // wird, ergibt danach einen anderen Fingerabdruck und wird von der
+    // Hintergrundkontrolle als das erkannt, was es ist -- eine Aenderung, die diese
+    // Revision nicht mehr enthaelt. Umgekehrt (erst am Ende gemessen) waere sie verloren.
+    const localSignature = await localChanges
+        .signatureOf(instanceDir, {
+            syncWorlds: Boolean(options.syncWorlds),
+            syncScreenshots: Boolean(options.syncScreenshots),
+            worldNames: Array.isArray(options.worldNames) ? options.worldNames : null
+        })
+        .then((result) => result.signature)
+        .catch(() => null);
 
     report('manifest');
     const built = await buildManifestInWorker({
@@ -196,16 +213,35 @@ async function uploadInstance({
 
     await rememberRevision(instanceId, { instanceName, cloudLinked: true });
     await seedPlaytime(instanceId, instanceDir).catch(() => {});
-    const parentRevision = Number(options.parentRevision ?? instance.revision ?? 0);
 
     const tracked = await readInstanceState(instanceId);
-    const unchanged = Boolean(tracked)
-        && tracked.lastContentHash === built.contentHash
-        && Number(tracked.lastKnownRevision) === Number(instance.revision)
-        && Number(instance.revision) > 0;
+    const localRevision = Number((tracked && tracked.lastKnownRevision) || 0);
+    const cloudRevision = Number(instance.revision || 0);
+    const contentUnchanged = Boolean(tracked) && tracked.lastContentHash === built.contentHash;
+
+    // The revision this upload is based on. It has to be the one this PC last saw, not
+    // whatever the cloud is on right now - taking the latter made the server's
+    // parentRevision check a tautology, so a PC sitting on revision 7 happily overwrote
+    // revision 8 from another machine and called the result 9.
+    // A forced push is the deliberate exception: the user picked this PC in the conflict
+    // dialog, so it builds on the current cloud head on purpose.
+    const parentRevision = Number(
+        options.parentRevision ?? (options.force === true ? cloudRevision : localRevision)
+    );
+
+    const unchanged = contentUnchanged && localRevision === cloudRevision && cloudRevision > 0;
 
     if (unchanged && options.force !== true) {
-        await rememberRevision(instanceId, { instanceName, lastCheckedAt: Date.now(), dirty: false });
+        await rememberRevision(instanceId, {
+            instanceName,
+            lastCheckedAt: Date.now(),
+            dirty: false,
+            // Nichts hochzuladen ist auch ein Gleichstand mit der Cloud. Ohne diesen Wert
+            // meldet die Hintergrundkontrolle dieselbe (inhaltlich folgenlose) Aenderung
+            // bei jedem Takt erneut -- typischerweise die von Minecraft neu geschriebene
+            // options.txt.
+            ...(localSignature ? { lastLocalSignature: localSignature, lastLocalSignatureAt: Date.now() } : {})
+        });
         report('done', { revision: instance.revision, skipped: true });
 
         return {
@@ -219,6 +255,50 @@ async function uploadInstance({
             skippedBlobs: 0,
             stats: built.stats
         };
+    }
+
+    // The cloud moved ahead of this PC. Pushing now would bury the newer revision, so
+    // hand the decision back to the caller: a clean instance can simply be updated, a
+    // changed one is a real conflict the user has to settle.
+    if (options.force !== true && cloudRevision > localRevision) {
+        // Der lokale Stand ist hier gemessen und beurteilt worden; ihn festzuhalten hindert
+        // die Hintergrundkontrolle daran, denselben Konflikt im Minutentakt neu einzuplanen.
+        // Aendert der Nutzer danach etwas, ergibt das einen neuen Fingerabdruck und der
+        // Anstoss kommt wieder.
+        if (localSignature) {
+            await rememberRevision(instanceId, {
+                lastLocalSignature: localSignature,
+                lastLocalSignatureAt: Date.now()
+            }).catch(() => {});
+        }
+
+        report('done', { revision: cloudRevision, skipped: true });
+
+        return {
+            revision: cloudRevision,
+            localRevision,
+            manifestHash: instance.manifestHash,
+            contentHash: built.contentHash,
+            instance,
+            skipped: true,
+            pullRequired: true,
+            contentUnchanged,
+            uploadedBlobs: 0,
+            uploadedBytes: 0,
+            skippedBlobs: 0,
+            stats: built.stats
+        };
+    }
+
+    // Ab hier entsteht eine Revision. Wenn der Nutzer nichts angefasst hat, ist das eine
+    // Ueberraschung -- also festhalten, was der Client fuer geaendert haelt.
+    if (contentUnchanged === false && tracked && tracked.lastContentHash) {
+        try {
+            const changes = await manifestSnapshot.diff(instanceId, built.manifest);
+            console.log(`[LuxCloud] ${instanceName}: committing a revision because ${manifestSnapshot.summarize(changes)}`);
+        } catch (err) {
+            console.warn('[LuxCloud] Could not explain the manifest difference:', err.message);
+        }
     }
 
     const byHash = new Map();
@@ -264,6 +344,7 @@ async function uploadInstance({
     };
 
     for (const upload of small) {
+        stopIfCancelled();
         const encoded = await encode(upload, supported);
 
         if (pending.length + 1 > maxBatchEntries || pendingBytes + encoded.data.length > maxBatchBytes) {
@@ -282,6 +363,7 @@ async function uploadInstance({
     await flush();
 
     await runPool(large, PARALLEL_PUTS, async (upload) => {
+        stopIfCancelled();
         const encoded = await encode(upload, supported);
         await uploadSingle(upload.sha256, encoded.data, encoded.compression, (bytes) => {
             sentBytes += Math.round((bytes / Math.max(encoded.data.length, 1)) * upload.size);
@@ -291,6 +373,10 @@ async function uploadInstance({
             await blobStore.write(upload.sha256, encoded.raw).catch(() => {});
         }
     });
+
+    // Letzter Ausstieg vor dem Commit. Danach ist die Revision beim Server und ein
+    // Abbruch wuerde nur noch die lokale Buchfuehrung verwirren.
+    stopIfCancelled();
 
     report('commit', { parentRevision });
     const committed = await api.authed({
@@ -307,9 +393,11 @@ async function uploadInstance({
         lastContentHash: built.contentHash,
         lastInstanceConfigHash: instanceConfigHashOf(built.manifest),
         lastSyncedAt: Date.now(),
-        dirty: false
+        dirty: false,
+        ...(localSignature ? { lastLocalSignature: localSignature, lastLocalSignatureAt: Date.now() } : {})
     });
 
+    await manifestSnapshot.save(instanceId, built.manifest).catch(() => {});
     await pushPlaytime(instanceId).catch(() => {});
 
     report('done', { revision: committed.revision });
@@ -328,10 +416,40 @@ async function uploadInstance({
     };
 }
 
+// Jeder Upload meldet am Ende genau einen Schlusszustand: 'done' oder 'error'.
+//
+// Vorher endete ein fehlgeschlagener Upload einfach mit einer Ausnahme, ohne dass je ein
+// Abschluss gemeldet wurde. Die Oberflaeche hatte zuletzt 'upload' gesehen und blieb
+// deshalb fuer immer auf "wird synchronisiert" stehen -- auch die Ursache dafuer, dass
+// ein "Invalid loader" wie eine Endlosschleife aussah statt wie ein Fehler.
+async function uploadInstance(args = {}) {
+    const { instanceName, instanceId, onProgress } = args;
+
+    transfers.begin(instanceName, 'upload');
+    try {
+        return await runUpload(args);
+    } catch (err) {
+        const failure = api.normalizeError(err);
+        if (onProgress) {
+            onProgress({
+                instanceName,
+                instanceId,
+                phase: 'error',
+                error: failure.code,
+                message: failure.message
+            });
+        }
+        throw failure;
+    } finally {
+        transfers.end(instanceName);
+    }
+}
+
 module.exports = {
     BATCH_THRESHOLD_BYTES,
     PUT_CHUNK_BYTES,
     encode,
     readUploadBytes,
+    runUpload,
     uploadInstance
 };

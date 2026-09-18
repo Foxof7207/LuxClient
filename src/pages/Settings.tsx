@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
 import { getSourceTags } from '../utils/sourceTags';
 import { filterInstancesForMode } from '../utils/instanceTypes';
+import { applySettingsSearch } from '../utils/settingsSearch';
 import {
     ArrowLeft,
     Save,
@@ -206,6 +207,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
         return () => window.removeEventListener('lux:open-settings-category', openCategory);
     }, []);
     const [settingsSearch, setSettingsSearch] = useState('');
+    const settingsBodyRef = React.useRef<HTMLDivElement | null>(null);
     const hasUnsavedChanges = useRef(false);
     const initialSettingsRef = useRef(null);
     const loadedTabDataRef = useRef({
@@ -813,6 +815,10 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
         return Array.from(byExtension.values());
     }, [extensionSettings, installedExtensions]);
 
+    const [settingsMatchCounts, setSettingsMatchCounts] = useState<Record<string, number>>({});
+
+    const settingsSearchActive = settingsSearch.trim().length > 0;
+
     const filteredSettingsSections = React.useMemo(() => {
         const query = settingsSearch.trim().toLowerCase();
         if (!query) {
@@ -822,9 +828,20 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
         return settingsSections.filter((section) => (
             section.label.toLowerCase().includes(query) ||
             section.description.toLowerCase().includes(query) ||
-            section.keywords.some((keyword) => keyword.includes(query))
+            section.keywords.some((keyword) => keyword.includes(query)) ||
+
+            (settingsMatchCounts[section.id] || 0) > 0
         ));
-    }, [settingsSearch, settingsSections]);
+    }, [settingsSearch, settingsSections, settingsMatchCounts]);
+
+    useEffect(() => {
+        const counts = applySettingsSearch(settingsBodyRef.current as any, settingsSearch);
+        setSettingsMatchCounts((previous) => {
+            const same = Object.keys(counts).length === Object.keys(previous).length
+                && Object.entries(counts).every(([key, value]) => previous[key] === value);
+            return same ? previous : counts;
+        });
+    }, [settingsSearch, activeSettingsTab, settings, extensionSettingGroups]);
 
     useEffect(() => {
         if (filteredSettingsSections.length === 0) {
@@ -889,7 +906,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                         <Input
                             value={settingsSearch}
                             onChange={(event) => setSettingsSearch(event.target.value)}
-                            placeholder={t('settings.system.search_placeholder', 'Search categories (e.g. Java, Cloud, Update...)')}
+                            placeholder={t('settings.system.search_placeholder_all', 'Search all settings (e.g. Modrinth, Java, RAM...)')}
                             className="h-9"
                         />
 
@@ -903,9 +920,14 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                                             value={section.id}
                                             className="h-auto w-full justify-start rounded-xl border border-border/70 bg-background/70 px-3 py-2 text-left data-[state=active]:border-primary/40 data-[state=active]:bg-primary/10"
                                         >
-                                            <div className="flex items-start gap-2">
+                                            <div className="flex w-full items-start gap-2">
                                                 <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                                                 <p className="text-sm font-medium text-foreground">{section.label}</p>
+                                                {settingsSearchActive && (settingsMatchCounts[section.id] || 0) > 0 && (
+                                                    <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                                        {settingsMatchCounts[section.id]}
+                                                    </span>
+                                                )}
                                             </div>
                                         </TabsTrigger>
                                     );
@@ -913,7 +935,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                             </TabsList>
                         ) : (
                             <p className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                                {t('settings.system.search_empty', 'No categories found.')}
+                                {t('settings.system.search_empty_all', 'No settings match your search.')}
                             </p>
                         )}
 
@@ -931,8 +953,8 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                             </Button>
                         </div>
 
-                        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-5 custom-scrollbar">
-                            <TabsContent value="experience" className="mt-0 space-y-5">
+                        <div ref={settingsBodyRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-5 custom-scrollbar">
+                            <TabsContent value="experience" className="mt-0 space-y-5" data-settings-section="experience" {...(settingsSearchActive ? { forceMount: true } : {})}>
 
                     <Card>
                         <CardHeader>
@@ -1225,7 +1247,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                         </DialogContent>
                     </Dialog>
 
-                    <TabsContent value="minecraft" className="mt-0 space-y-5">
+                    <TabsContent value="minecraft" className="mt-0 space-y-5" data-settings-section="minecraft" {...(settingsSearchActive ? { forceMount: true } : {})}>
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
@@ -1559,7 +1581,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                     )}
                     </TabsContent>
 
-                    <TabsContent value="automation" className="mt-0 space-y-5">
+                    <TabsContent value="automation" className="mt-0 space-y-5" data-settings-section="automation" {...(settingsSearchActive ? { forceMount: true } : {})}>
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
@@ -1763,11 +1785,11 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                     </Card>
                     </TabsContent>
 
-                    <TabsContent value="account" className="mt-0 space-y-5">
+                    <TabsContent value="account" className="mt-0 space-y-5" data-settings-section="account" {...(settingsSearchActive ? { forceMount: true } : {})}>
                         <LuxAccountPanel />
                     </TabsContent>
 
-                    <TabsContent value="cloud" className="mt-0 space-y-5">
+                    <TabsContent value="cloud" className="mt-0 space-y-5" data-settings-section="cloud" {...(settingsSearchActive ? { forceMount: true } : {})}>
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
@@ -1955,7 +1977,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                     </Card>
                     </TabsContent>
 
-                    <TabsContent value="advanced" className="mt-0 space-y-5">
+                    <TabsContent value="advanced" className="mt-0 space-y-5" data-settings-section="advanced" {...(settingsSearchActive ? { forceMount: true } : {})}>
                     <Card>
                         <Accordion type="single" collapsible>
                             <AccordionItem value="advanced" className="border-b-0">
@@ -2081,7 +2103,7 @@ function Settings({ mode = 'default', onRestartGuide = null, onClose = null, dis
                     </TabsContent>
 
                     {extensionSettingGroups.length > 0 && (
-                        <TabsContent value="extensions" className="mt-0 space-y-5">
+                        <TabsContent value="extensions" className="mt-0 space-y-5" data-settings-section="extensions" {...(settingsSearchActive ? { forceMount: true } : {})}>
                             {extensionSettingGroups.map((group) => (
                                 <div key={group.extensionId} className="space-y-4">
                                     <div className="flex items-center gap-3">

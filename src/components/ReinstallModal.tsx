@@ -20,7 +20,14 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
     const name = resolvedInstance.name || instanceName || '';
     const loader = String(resolvedInstance.loader || 'Vanilla');
     const mcVersion = resolvedInstance.version || '';
-    const isFabric = loader.toLowerCase() === 'fabric';
+    const normalizedLoader = loader.toLowerCase();
+    const isFabric = normalizedLoader === 'fabric';
+    // Every mod loader we can install also has selectable builds, so pinning one is not a
+    // Fabric-only affair. Vanilla is the only case without a loader to pin.
+    const supportsLoaderPin = ['fabric', 'quilt', 'forge', 'neoforge'].includes(normalizedLoader);
+    // Only Fabric and Quilt report a meaningful `stable` flag; for Forge/NeoForge the
+    // backend hardcodes `stable: false`, so labelling every build "(beta)" would lie.
+    const hasStableFlag = isFabric || normalizedLoader === 'quilt';
 
     const [type, setType] = useState('soft'); // 'soft' | 'hard' | 'custom'
 
@@ -35,7 +42,7 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
     // Lazily fetch the available Fabric loader + Fabric API versions the first
     // time the user opens the custom tab.
     useEffect(() => {
-        if (type !== 'custom' || !isFabric || !mcVersion) return;
+        if (type !== 'custom' || !supportsLoaderPin || !mcVersion) return;
         if (loaderVersions.length > 0 || apiVersions.length > 0) return;
 
         let active = true;
@@ -44,8 +51,10 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
             setCustomError(null);
             try {
                 const [loaderRes, apiRes] = await Promise.all([
-                    window.electronAPI.getLoaderVersions('Fabric', mcVersion),
-                    window.electronAPI.getModVersions(FABRIC_API_PROJECT_ID, ['fabric'], [mcVersion])
+                    window.electronAPI.getLoaderVersions(loader, mcVersion),
+                    isFabric
+                        ? window.electronAPI.getModVersions(FABRIC_API_PROJECT_ID, ['fabric'], [mcVersion])
+                        : Promise.resolve(null)
                 ]);
 
                 if (!active) return;
@@ -68,7 +77,7 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
         return () => {
             active = false;
         };
-    }, [type, isFabric, mcVersion]);
+    }, [type, supportsLoaderPin, isFabric, loader, mcVersion]);
 
     const handleConfirm = () => {
         if (type === 'custom') {
@@ -79,6 +88,8 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
     };
 
     const confirmDisabled = type === 'custom' && (loadingCustom || (!loaderVersion && !fabricApiVersion));
+
+    const loaderLabel = isFabric ? 'Fabric Loader' : `${loader} Version`;
 
     return (
         <div className={`fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4 backdrop-blur-sm ${animationsEnabled ? 'animate-in fade-in duration-200' : ''}`}>
@@ -107,7 +118,7 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
                             </p>
                         </label>
 
-                        {isFabric && (
+                        {supportsLoaderPin && (
                             <label className={`block p-4 rounded-xl border-2 cursor-pointer transition-all ${type === 'custom' ? 'border-primary bg-primary/10' : 'border-border bg-muted hover:bg-accent'}`}>
                                 <div className="flex items-center gap-3 mb-2">
                                     <input
@@ -121,7 +132,8 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
                                     <span className="font-bold text-foreground">Custom Reinstall</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground pl-8">
-                                    Re-installs the game files and lets you pin a specific <strong className="text-muted-foreground">Fabric Loader</strong> and <strong className="text-muted-foreground">Fabric API</strong> version. Keeps your other mods, saves, and configs intact.
+                                    Re-installs the game files and lets you pin a specific <strong className="text-muted-foreground">{loaderLabel}</strong>
+                                    {isFabric && <> and <strong className="text-muted-foreground">Fabric API</strong></>} version. Keeps your other mods, saves, and configs intact.
                                 </p>
 
                                 {type === 'custom' && (
@@ -136,32 +148,37 @@ function ReinstallModal({ instance, instanceName, onClose, onConfirm }: Reinstal
                                         ) : (
                                             <>
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Fabric Loader</label>
+                                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">{loaderLabel}</label>
                                                     <Dropdown
                                                         options={loaderVersions.map((v) => ({
                                                             value: v.version,
-                                                            label: v.stable === false ? `${v.version} (beta)` : v.version
+                                                            label: hasStableFlag && v.stable === false ? `${v.version} (beta)` : v.version
                                                         }))}
                                                         value={loaderVersion}
                                                         onChange={setLoaderVersion}
                                                         placeholder="Select loader version"
                                                     />
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Fabric API</label>
-                                                    <Dropdown
-                                                        options={apiVersions.map((v) => ({
-                                                            value: v.id,
-                                                            label: v.version_number || v.name || v.id
-                                                        }))}
-                                                        value={fabricApiVersion}
-                                                        onChange={setFabricApiVersion}
-                                                        placeholder="Select Fabric API version"
-                                                    />
-                                                    {apiVersions.length === 0 && (
-                                                        <p className="text-[11px] text-muted-foreground">No Fabric API release found for this Minecraft version.</p>
+                                                    {loaderVersions.length === 0 && (
+                                                        <p className="text-[11px] text-muted-foreground">No {loader} build found for Minecraft {mcVersion}.</p>
                                                     )}
                                                 </div>
+                                                {isFabric && (
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Fabric API</label>
+                                                        <Dropdown
+                                                            options={apiVersions.map((v) => ({
+                                                                value: v.id,
+                                                                label: v.version_number || v.name || v.id
+                                                            }))}
+                                                            value={fabricApiVersion}
+                                                            onChange={setFabricApiVersion}
+                                                            placeholder="Select Fabric API version"
+                                                        />
+                                                        {apiVersions.length === 0 && (
+                                                            <p className="text-[11px] text-muted-foreground">No Fabric API release found for this Minecraft version.</p>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </>
                                         )}
                                     </div>

@@ -12,6 +12,33 @@ module.exports = (ipcMain, mainWindow) => {
     fs.ensureDirSync(extensionsDir);
 
     const activeBackendExtensions = new Map();
+    const backendChannels = new Map();
+
+    const trackChannel = (id, kind, channel, listener = null) => {
+        if (!backendChannels.has(id)) {
+            backendChannels.set(id, { handles: new Set(), listeners: new Set(), events: [] });
+        }
+        const tracked = backendChannels.get(id);
+        if (kind === 'handle') tracked.handles.add(channel);
+        if (kind === 'on') tracked.listeners.add(channel);
+        if (kind === 'event') tracked.events.push({ channel, listener });
+    };
+
+    const releaseChannels = (id) => {
+        const tracked = backendChannels.get(id);
+        if (!tracked) return;
+
+        for (const channel of tracked.handles) {
+            try { ipcMain.removeHandler(channel); } catch (e) { }
+        }
+        for (const channel of tracked.listeners) {
+            try { ipcMain.removeAllListeners(channel); } catch (e) { }
+        }
+        for (const entry of tracked.events) {
+            try { ipcMain.removeListener(entry.channel, entry.listener); } catch (e) { }
+        }
+        backendChannels.delete(id);
+    };
 
     const createBackendApi = (id) => ({
         ipc: {
@@ -19,11 +46,13 @@ module.exports = (ipcMain, mainWindow) => {
                 const fullChannel = `ext:${id}:${channel}`;
                 try { ipcMain.removeHandler(fullChannel); } catch (e) { }
                 ipcMain.handle(fullChannel, (event, ...args) => listener(event, ...args));
+                trackChannel(id, 'handle', fullChannel);
             },
             on: (channel, listener) => {
                 const fullChannel = `ext:${id}:${channel}`;
                 ipcMain.removeAllListeners(fullChannel);
                 ipcMain.on(fullChannel, (event, ...args) => listener(event, ...args));
+                trackChannel(id, 'on', fullChannel);
             },
             send: (channel, ...args) => {
                 const win = mainWindow || require('electron').BrowserWindow.getAllWindows()[0];
@@ -41,7 +70,9 @@ module.exports = (ipcMain, mainWindow) => {
                 }
             },
             on: (event, listener) => {
-                ipcMain.on(`ext-event:${event}`, listener);
+                const fullChannel = `ext-event:${event}`;
+                ipcMain.on(fullChannel, listener);
+                trackChannel(id, 'event', fullChannel, listener);
             }
         },
         launcher: {
@@ -116,6 +147,7 @@ module.exports = (ipcMain, mainWindow) => {
             }
             activeBackendExtensions.delete(id);
         }
+        releaseChannels(id);
     };
     const loadConfig = async () => {
         try {
@@ -223,6 +255,7 @@ module.exports = (ipcMain, mainWindow) => {
                 return { success: false, error: `Invalid extension: missing entry file (${entryFile}) in root` };
             }
             const installPath = path.join(extensionsDir, manifest.id);
+            await unloadBackend(manifest.id);
             await fs.ensureDir(installPath);
             for (const filename of Object.keys(zip.files)) {
                 if (zip.files[filename].dir) continue;
@@ -265,6 +298,8 @@ module.exports = (ipcMain, mainWindow) => {
             config.enabled[manifest.id] = true;
             await saveConfig(config);
 
+            await loadBackend(manifest.id, installPath);
+
             return { success: true, id: manifest.id };
         } catch (error) {
             console.error('Failed to install extension:', error);
@@ -275,6 +310,7 @@ module.exports = (ipcMain, mainWindow) => {
         try {
             const targetPath = path.join(extensionsDir, extensionId);
             if (await fs.pathExists(targetPath)) {
+                await unloadBackend(extensionId);
                 await fs.remove(targetPath);
                 const config = await loadConfig();
                 delete config.enabled[extensionId];

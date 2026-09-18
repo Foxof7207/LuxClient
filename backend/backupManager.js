@@ -3,6 +3,7 @@ const path = require('path');
 const archiver = require('archiver');
 const { app } = require('electron');
 const { resolvePrimaryInstancesDir, resolveInstanceDirByName } = require('./utils/instances-path');
+const { describeSandbox, probePath } = require('./utils/sandbox');
 
 class BackupManager {
     constructor() {
@@ -30,7 +31,23 @@ class BackupManager {
         const savesDir = path.join(instanceDir, 'saves');
         const instanceBackupsDir = path.join(this.backupsDir, instanceName);
 
-        if (!(await fs.pathExists(savesDir))) {
+        // fs.pathExists() cannot tell "nothing there" from "the sandbox will not let you
+        // look", so a Flatpak build pointed at an instances folder outside its granted
+        // paths reported every backup as "No saves found" and stopped. Name the real
+        // cause instead - no retry can fix a missing filesystem permission.
+        const saves = probePath(savesDir);
+        if (saves.denied) {
+            const sandbox = describeSandbox();
+            const hint = sandbox.confined
+                ? ` The ${sandbox.kind} sandbox has no access to it - grant the folder (for Flatpak:`
+                    + ` flatpak override --user --filesystem=<path> ${sandbox.appId || 'de.pluginhub.lux'})`
+                    + ' or move the instances folder back under the default location.'
+                : '';
+            console.error(`[BackupManager] Cannot read ${savesDir} (${saves.code}).${hint}`);
+            return { success: false, error: `Cannot read the saves folder of ${instanceName} (${saves.code}).${hint}` };
+        }
+
+        if (!saves.readable) {
             console.log(`[BackupManager] No saves found for ${instanceName}, skipping backup.`);
             return { success: false, error: 'No saves found' };
         }

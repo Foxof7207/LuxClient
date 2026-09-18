@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, History, CloudOff, Trash2, Clock, AlertTriangle } from 'lucide-react';
+import { RefreshCw, History, CloudOff, CloudDownload, Trash2, Clock, AlertTriangle, X } from 'lucide-react';
 
 import { useLuxAccount } from '../../context/LuxAccountContext';
 import { useLuxSync } from '../../context/LuxSyncContext';
@@ -61,6 +61,7 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
     const [scope, setScope] = useState<Record<string, boolean>>({});
     const [message, setMessage] = useState<string | null>(null);
     const [trashedUuid, setTrashedUuid] = useState<string | null>(null);
+    const [localRevision, setLocalRevision] = useState<number | null>(null);
 
     const cloudInstance = (sync?.cloudInstances || []).find(
         (entry) => entry.instanceUuid === instanceId || entry.name === instanceName
@@ -69,6 +70,21 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
     const status = sync ? sync.statusFor(instanceName, instanceId) : 'local';
     const progress = sync?.progress[instanceName];
 
+    const isTrashed = status === 'trashed' || Boolean(trashedUuid);
+    // Solange wirklich Daten fliessen, tritt an die Stelle des Sync-Knopfes ein Abbruch.
+    const transferRunning = Boolean(progress) || status === 'syncing';
+    // The cloud holds a revision this PC has never seen. Worth saying out loud, because
+    // the only visible action used to be "Sync now", which pushed the older state up.
+    const updateAvailable = Boolean(
+        cloudInstance
+        && !isTrashed
+        && localRevision !== null
+        && Number(cloudInstance.revision) > localRevision
+    );
+    // A trashed instance is not in the 'active' listing, so its uuid has to come from the
+    // failed sync or from the local instance itself.
+    const restoreUuid = trashedUuid || cloudInstance?.instanceUuid || instanceId || null;
+
     const loadPlaytime = useCallback(async () => {
         const api = bridge();
         if (!api || typeof api.luxCloudGetPlaytime !== 'function') return;
@@ -76,7 +92,15 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
         if (result && result.success !== false) setPlaytime(result);
     }, [instanceName]);
 
+    const loadLocalRevision = useCallback(async () => {
+        const api = bridge();
+        if (!api || typeof api.luxCloudLocalRevision !== 'function') return;
+        const result = await api.luxCloudLocalRevision(instanceName);
+        if (result && result.success !== false) setLocalRevision(Number(result.revision) || 0);
+    }, [instanceName]);
+
     useEffect(() => { loadPlaytime(); }, [loadPlaytime]);
+    useEffect(() => { loadLocalRevision(); }, [loadLocalRevision, sync?.cloudInstances]);
 
     if (!account || !account.loggedIn) return null;
 
@@ -94,9 +118,36 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
                 ));
             } else if (result && result.success === false) {
                 setMessage(result.message || result.error);
+            } else if (result && result.pulled) {
+                setMessage(t('cloud.instance.pulled_update', {
+                    defaultValue: 'The cloud was ahead, so this PC was updated to v{{revision}}.',
+                    revision: result.revision
+                }));
             } else if (result && result.skipped) {
                 setMessage(t('cloud.instance.nothing_changed', 'Nothing changed since the last sync.'));
             }
+            await loadLocalRevision();
+            await loadPlaytime();
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // Pulls the newer cloud revision onto this PC. Distinct from runSync, which decides
+    // the direction itself - here the user has explicitly asked to take the cloud copy.
+    const runUpdate = async () => {
+        const uuid = cloudInstance?.instanceUuid || instanceId;
+        if (!uuid) return;
+
+        setBusy(true);
+        setMessage(null);
+        try {
+            const result = await sync?.restoreInstance(uuid, { instanceName });
+            if (result && result.success === false) {
+                setMessage(result.message || result.error);
+                return;
+            }
+            await loadLocalRevision();
             await loadPlaytime();
         } finally {
             setBusy(false);
@@ -105,17 +156,18 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
 
     const restoreFromTrash = async () => {
         const api = bridge();
-        if (!api || !trashedUuid || typeof api.luxCloudRestoreCloudInstance !== 'function') return;
+        if (!api || !restoreUuid || typeof api.luxCloudRestoreCloudInstance !== 'function') return;
 
         setBusy(true);
         try {
-            const result = await api.luxCloudRestoreCloudInstance(trashedUuid);
+            const result = await api.luxCloudRestoreCloudInstance(restoreUuid);
             if (result && result.success === false) {
                 setMessage(result.message || result.error);
                 return;
             }
             setTrashedUuid(null);
             setMessage(null);
+            sync?.clearStatus(instanceName);
             await sync?.refresh();
         } finally {
             setBusy(false);
@@ -139,6 +191,22 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
                 return false;
             }
             await sync?.refresh();
+
+            // Eine Umfangsaenderung ohne Sync ist wirkungslos: die eben zugeschalteten
+            // Welten liegen weiter nur lokal, die abgewaehlten weiter in der Cloud. Der
+            // Haken erledigt deshalb gleich, was er verspricht.
+            const synced = await sync?.syncInstance(instanceName, {});
+            if (synced && synced.success === false) {
+                setMessage(synced.message || synced.error);
+            } else if (synced && synced.pulled) {
+                setMessage(t('cloud.instance.pulled_update', {
+                    defaultValue: 'The cloud was ahead, so this PC was updated to v{{revision}}.',
+                    revision: synced.revision
+                }));
+            } else {
+                setMessage(t('cloud.instance.scope_synced', 'Setting saved and synced.'));
+            }
+            await loadLocalRevision();
             return true;
         } finally {
             setBusy(false);
@@ -188,15 +256,29 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
                     <CloudStatusBadge status={status} percent={percent} />
                 </div>
 
-                <button
-                    type="button"
-                    disabled={busy || status === 'syncing'}
-                    onClick={runSync}
-                    className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-xs text-white/70 transition hover:border-white/25 hover:text-white disabled:opacity-40"
-                >
-                    <RefreshCw size={12} className={busy || status === 'syncing' ? 'animate-spin' : ''} />
-                    {t('cloud.instance.sync_now', 'Sync now')}
-                </button>
+                {transferRunning ? (
+                    <button
+                        type="button"
+                        onClick={() => sync?.cancelTransfer(instanceName)}
+                        className="flex items-center gap-1.5 rounded-lg border border-red-400/30 px-2.5 py-1 text-xs text-red-300 transition hover:bg-red-500/10"
+                    >
+                        <X size={12} />
+                        {t('cloud.instance.cancel_sync', 'Cancel')}
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        disabled={busy || isTrashed}
+                        onClick={runSync}
+                        title={isTrashed
+                            ? t('cloud.instance.trashed', 'This instance is in the cloud trash. Restore it to sync again.')
+                            : undefined}
+                        className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-xs text-white/70 transition hover:border-white/25 hover:text-white disabled:opacity-40"
+                    >
+                        <RefreshCw size={12} className={busy ? 'animate-spin' : ''} />
+                        {t('cloud.instance.sync_now', 'Sync now')}
+                    </button>
+                )}
             </div>
 
             {progress && progress.totalBytes ? (
@@ -343,21 +425,50 @@ export default function InstanceCloudPanel({ instanceName, instanceId }: Props) 
                 </p>
             )}
 
-            {message && (
-                <div className="mt-3 rounded-lg bg-white/[0.04] p-2.5">
-                    <p className="text-xs text-white/60">{message}</p>
-                    {trashedUuid && (
+            {updateAvailable && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-sky-400/25 bg-sky-500/[0.08] p-3">
+                    <CloudDownload size={14} className="mt-0.5 shrink-0 text-sky-300" />
+                    <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-relaxed text-sky-100/85">
+                            {t('cloud.instance.update_available', {
+                                defaultValue:
+                                    'Another PC uploaded a newer version (v{{remote}}, you have v{{local}}).',
+                                remote: cloudInstance?.revision,
+                                local: localRevision
+                            })}
+                        </p>
                         <button
                             type="button"
-                            disabled={busy}
-                            onClick={restoreFromTrash}
-                            className="mt-2 rounded-lg border border-emerald-400/30 px-2.5 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
+                            disabled={busy || status === 'syncing'}
+                            onClick={runUpdate}
+                            className="mt-2 rounded-lg border border-sky-400/30 px-2.5 py-1.5 text-xs text-sky-200 transition hover:bg-sky-500/10 disabled:opacity-40"
                         >
-                            {t('cloud.instance.restore_and_sync', 'Restore from trash and sync')}
+                            {t('cloud.instance.download_update', 'Download this version')}
                         </button>
-                    )}
+                    </div>
                 </div>
             )}
+
+            {isTrashed ? (
+                <div className="mt-3 rounded-lg bg-white/[0.04] p-2.5">
+                    <p className="text-xs text-white/60">
+                        {message || t('cloud.instance.trashed',
+                            'This instance is in the cloud trash. Restore it to sync again.')}
+                    </p>
+                    <button
+                        type="button"
+                        disabled={busy || !restoreUuid}
+                        onClick={restoreFromTrash}
+                        className="mt-2 rounded-lg border border-emerald-400/30 px-2.5 py-1.5 text-xs text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
+                    >
+                        {t('cloud.instance.restore_and_sync', 'Restore from trash and sync')}
+                    </button>
+                </div>
+            ) : message ? (
+                <div className="mt-3 rounded-lg bg-white/[0.04] p-2.5">
+                    <p className="text-xs text-white/60">{message}</p>
+                </div>
+            ) : null}
 
             <WorldSelectionModal
                 open={showWorlds}

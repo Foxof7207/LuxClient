@@ -418,6 +418,9 @@ const electronAPI = {
     luxCloudPushPlaytime: () => ipcRenderer.invoke('luxcloud:push-playtime'),
     luxCloudPreLaunchCheck: (instanceName, options) => ipcRenderer.invoke('luxcloud:pre-launch-check', instanceName, options),
     luxCloudDiffInstance: (instanceName, options) => ipcRenderer.invoke('luxcloud:diff-instance', instanceName, options),
+    luxCloudLocalRevision: (instanceName) => ipcRenderer.invoke('luxcloud:local-revision', instanceName),
+    luxCloudCancelTransfer: (instanceName) => ipcRenderer.invoke('luxcloud:cancel-transfer', instanceName),
+    luxCloudActiveTransfers: () => ipcRenderer.invoke('luxcloud:active-transfers'),
     luxCloudResolveConflict: (instanceName, choice, options) => ipcRenderer.invoke('luxcloud:resolve-conflict', instanceName, choice, options),
     luxCloudRollback: (instanceUuid, revision) => ipcRenderer.invoke('luxcloud:rollback', instanceUuid, revision),
     luxCloudAutoSyncState: () => ipcRenderer.invoke('luxcloud:auto-sync-state'),
@@ -436,6 +439,11 @@ const electronAPI = {
         const subscription = (_event, value) => callback(value);
         ipcRenderer.on('luxcloud:session-warning', subscription);
         return () => ipcRenderer.removeListener('luxcloud:session-warning', subscription);
+    },
+    onLuxCloudLaunchBlocked: (callback) => {
+        const subscription = (_event, value) => callback(value);
+        ipcRenderer.on('luxcloud:launch-blocked', subscription);
+        return () => ipcRenderer.removeListener('luxcloud:launch-blocked', subscription);
     },
     onLuxCloudSyncProgress: (callback) => {
         const subscription = (_event, value) => callback(value);

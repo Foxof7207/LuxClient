@@ -8,6 +8,19 @@ const blobStore = require('./blobStore');
 const { decompress } = require('./compression');
 const { validRelPath } = require('./pathRules');
 const { rememberRevision } = require('./syncState');
+const { rememberLocalSignature } = require('./localChanges');
+const {
+    buildNormalizedInstanceJson,
+    contentHashOf,
+    mergeInstanceConfig,
+    saveModCacheUpdates
+} = require('./manifest');
+const transfers = require('./transfers');
+const manifestSnapshot = require('./manifestSnapshot');
+const { HashCache } = require('./hashCache');
+const { getHashCacheDir } = require('./paths');
+
+const INSTANCE_CONFIG = 'instance.json';
 
 const STAGING_DIR = '.lux-sync';
 const MODRINTH_CDN = 'https://cdn.modrinth.com';
@@ -107,10 +120,111 @@ async function assembleChunks(entry) {
     return Buffer.concat(parts);
 }
 
+async function writeMergedInstanceConfig(instanceDir, buffer) {
+    const target = path.join(instanceDir, INSTANCE_CONFIG);
+
+    let remoteConfig;
+    try {
+        remoteConfig = JSON.parse(buffer.toString('utf8'));
+    } catch (_) {
+        // Not parseable as JSON - fall back to writing it verbatim rather than losing it.
+        await fs.writeFile(target, buffer);
+        return;
+    }
+
+    const localConfig = await fs.readJson(target).catch(() => null);
+    const merged = mergeInstanceConfig(remoteConfig, localConfig);
+    await fs.writeJson(target, merged, { spaces: 4 });
+}
+
+// Übernimmt die Modrinth-Zuordnungen aus dem Manifest in den lokalen Mod-Cache.
+//
+// Der hochladende PC kennt seine Mods aus dem Mod-Browser und verweist im Manifest aufs
+// CDN, statt die JARs mitzuschicken. Der herunterladende PC hatte diese Zuordnung nicht -
+// er hat die Mods ja gerade erst aus der Cloud bekommen. Sein naechstes Manifest kam
+// deshalb ohne die Verweise heraus, unterschied sich vom heruntergeladenen und loeste
+// eine Revision aus, obwohl niemand etwas geaendert hatte. Nebenbei haette er die JARs
+// beim naechsten Upload als Blobs mitgeschickt, statt sie zu referenzieren.
+async function adoptModSources(modCachePath, entries) {
+    if (!modCachePath) return 0;
+
+    const updates = {};
+    for (const entry of entries) {
+        const source = entry.source;
+        if (!source || source.type !== 'modrinth') continue;
+        if (!source.projectId || !source.versionId || !source.sha1) continue;
+
+        const record = {
+            projectId: String(source.projectId),
+            versionId: String(source.versionId),
+            hash: String(source.sha1),
+            source: 'modrinth'
+        };
+
+        // Beide Schluesselformen, die lookupSource kennt.
+        updates[source.sha1] = record;
+        const fileName = String(entry.path).split('/').pop();
+        if (fileName && Number.isFinite(Number(entry.size))) {
+            updates[`${fileName}-${entry.size}`] = record;
+        }
+    }
+
+    if (Object.keys(updates).length === 0) return 0;
+    await saveModCacheUpdates(modCachePath, updates).catch(() => {});
+    return Object.keys(updates).length;
+}
+
+// After a restore the hash cache still describes the files as they were before, so the
+// dirty check would report every single one as changed and the next sync would push a
+// pointless revision. The manifest already carries the authoritative hashes, so the
+// cache can be refreshed from it with a stat per file instead of re-hashing everything.
+async function refreshHashCache(instanceDir, instanceId, entries) {
+    if (!instanceId) return;
+
+    const cache = await new HashCache(getHashCacheDir(), instanceId).load();
+    const live = new Set();
+
+    for (const entry of entries) {
+        // instance.json is merged rather than written verbatim, so its on-disk hash is
+        // not the manifest hash. Leave it out and let the next build hash it.
+        if (entry.path === INSTANCE_CONFIG) continue;
+
+        const absPath = path.join(instanceDir, entry.path);
+        let stat;
+        try {
+            stat = await fs.stat(absPath);
+        } catch (_) {
+            continue;
+        }
+        if (stat.size !== Number(entry.size)) continue;
+
+        live.add(entry.path);
+        const previous = cache.entries.get(entry.path) || {};
+        cache.entries.set(entry.path, {
+            ...previous,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            sha256: entry.sha256
+        });
+        cache.dirty = true;
+    }
+
+    cache.prune(live);
+    await cache.save().catch(() => {});
+}
+
 async function resolveEntry(entry, instanceDir) {
     const absPath = path.join(instanceDir, entry.path);
 
-    if (await fileMatches(absPath, entry.sha256, entry.size)) {
+    if (entry.path === INSTANCE_CONFIG) {
+        // The local file also carries this machine's own fields, so it is never byte
+        // identical to the cloud copy. Comparing the normalized form instead keeps
+        // instance.json from counting as missing on every single restore.
+        const normalized = await buildNormalizedInstanceJson(instanceDir);
+        if (normalized && normalized.sha256 === entry.sha256) {
+            return { source: 'local', bytes: 0 };
+        }
+    } else if (await fileMatches(absPath, entry.sha256, entry.size)) {
         return { source: 'local', bytes: 0 };
     }
 
@@ -147,12 +261,27 @@ async function resolveEntry(entry, instanceDir) {
     return { source: 'server', buffer, bytes: buffer.length };
 }
 
-async function restoreInstance({
+async function restoreInstance(args = {}) {
+    const key = args.instanceName || args.instanceUuid;
+    const nested = transfers.isCancelled(key) === false && transfers.list().some((t) => t.instanceName === key);
+
+    // Der Sync-Handler laedt bei Bedarf direkt nach einem Upload herunter; dann laeuft
+    // bereits ein Eintrag unter demselben Namen und darf hier nicht abgeraeumt werden.
+    if (!nested) transfers.begin(key, 'download');
+    try {
+        return await runRestore(args);
+    } finally {
+        if (!nested) transfers.end(key);
+    }
+}
+
+async function runRestore({
     instanceUuid,
     instanceDir,
     revision = 'latest',
     onProgress = null,
-    instanceName = null
+    instanceName = null,
+    modCachePath = null
 } = {}) {
     let reportName = instanceName || instanceUuid;
     const report = (phase, detail = {}) => {
@@ -203,14 +332,33 @@ async function restoreInstance({
             const entry = entries[cursor];
             cursor += 1;
 
+            // Zwischen zwei Dateien ist der sichere Punkt zum Aussteigen: das Staging
+            // wird unten aufgeraeumt, und bereits geschriebene Dateien sind vollstaendig.
+            if (transfers.isCancelled(reportName) || transfers.isCancelled(instanceName)) {
+                aborted = new api.LuxCloudError('cancelled', 'The transfer was cancelled');
+                aborted.details = { path: entry.path };
+                return;
+            }
+
             try {
                 const resolved = await resolveEntry(entry, instanceDir);
                 counters[resolved.source] = (counters[resolved.source] || 0) + 1;
 
                 if (resolved.source === 'unavailable') {
                     unavailable.push({ path: entry.path, reason: resolved.reason });
+                } else if (entry.path === INSTANCE_CONFIG && resolved.buffer) {
+                    // The cloud copy is the normalized one, without this machine's own
+                    // fields. Writing it straight out would wipe javaPath, the install
+                    // state and the playtime of the PC we are restoring onto.
+                    await writeMergedInstanceConfig(instanceDir, resolved.buffer);
                 } else if (resolved.buffer) {
-                    const staged = path.join(stagingRoot, `${entry.sha256}.part`);
+                    // The staging name must be unique per entry, not per hash. A manifest
+                    // regularly lists the same content under several paths (mod archives
+                    // unpacked by WorldEdit alone produce hundreds of identical language
+                    // files), and with parallel workers two of them would otherwise write
+                    // and move the very same `<sha256>.part` — whoever moves second finds
+                    // the file already gone and the whole restore dies with ENOENT.
+                    const staged = path.join(stagingRoot, `${entry.sha256}-${crypto.randomBytes(8).toString('hex')}.part`);
                     await fs.writeFile(staged, resolved.buffer);
 
                     const target = path.join(instanceDir, entry.path);
@@ -244,14 +392,41 @@ async function restoreInstance({
 
     await fs.remove(stagingRoot).catch(() => {});
 
+    await refreshHashCache(instanceDir, manifest.instanceId, entries).catch((err) => {
+        console.warn('[LuxCloud] Could not refresh the hash cache after the restore:', err.message);
+    });
+
+    // Muss vor dem contentHash unten passieren: ohne die uebernommenen Verweise baut
+    // dieser PC ein anderes Manifest als das gerade heruntergeladene.
+    await adoptModSources(modCachePath, entries).catch((err) => {
+        console.warn('[LuxCloud] Could not adopt the mod references after the restore:', err.message);
+    });
+
+    // Vergleichsbasis fuer den naechsten Sync: erzeugt er trotzdem eine Revision, kann er
+    // benennen, welche Datei dafuer verantwortlich ist.
+    await manifestSnapshot.save(manifest.instanceId, manifest).catch(() => {});
+
     try {
+        const instanceConfigEntry = entries.find((entry) => entry.path === INSTANCE_CONFIG);
+
         await rememberRevision(manifest.instanceId, {
             instanceName: instanceName || manifest.name,
             lastKnownRevision: payload.revision,
             lastManifestHash: payload.manifestHash,
+            // Without these two the very next sync saw an unknown content hash, judged the
+            // instance changed and committed a new revision even though the user had only
+            // just downloaded it and touched nothing.
+            lastContentHash: contentHashOf(manifest),
+            lastInstanceConfigHash: instanceConfigEntry ? instanceConfigEntry.sha256 : null,
             lastSyncedAt: Date.now(),
             dirty: false
         });
+
+        // Erst nach rememberRevision, denn der Fingerabdruck wird mit dem gerade
+        // geschriebenen Sync-Umfang gebildet. Ohne ihn saehe die Hintergrundkontrolle die
+        // frischen mtimes der heruntergeladenen Dateien als lokale Aenderung und schoebe
+        // unmittelbar nach jedem Download einen Upload hinterher.
+        await rememberLocalSignature(manifest.instanceId, instanceDir);
     } catch (err) {
         console.warn('[LuxCloud] Could not remember the restored revision:', err.message);
     }

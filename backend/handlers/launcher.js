@@ -12,6 +12,9 @@ const playtimeSession = require('../luxcloud/playtimeSession');
 const autoSync = require('../luxcloud/autoSync');
 const cloudSession = require('../luxcloud/cloudSession');
 const cloudPlaytime = require('../luxcloud/playtime');
+const preLaunch = require('../luxcloud/preLaunch');
+const { withSyncScope } = require('../luxcloud/syncScope');
+const { readInstanceState } = require('../luxcloud/syncState');
 
 function normalizeExternalRequestName(value) {
     return String(value || '').trim().toLowerCase();
@@ -1679,6 +1682,138 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
         return { success: false, error: 'No running process found for this instance.' };
     });
 
+    // Bringt eine Cloud-Instanz vor dem Start auf den neuesten Stand.
+    //
+    // Der Ablauf gibt es laenger, war aber an nichts angeschlossen -- weder die Oberflaeche
+    // noch der Launcher haben ihn je aufgerufen. Deshalb startete ein PC munter auf einer
+    // alten Revision, und der Upload danach lief in einen Konflikt.
+    //
+    // Grundregel: blockieren nur, wenn beide Seiten sich geaendert haben. Alles andere
+    // (offline, nicht eingeloggt, kein Konto, Serverfehler) darf das Spielen nicht
+    // aufhalten.
+    const runCloudPreLaunchCheck = async (instanceName, instanceDir, config) => {
+        const instanceId = config?.instanceId || null;
+        if (!instanceId) return { canLaunch: true };
+
+        const log = (line) => {
+            console.log(`[LuxCloud] ${line}`);
+            enqueueLaunchLog(instanceName, `[Lux Cloud] ${line}`);
+        };
+
+        const sendPhase = (phase, detail = {}) => {
+            if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+                mainWindow.webContents.send('luxcloud:pre-launch-progress', {
+                    instanceName, instanceId, phase, ...detail
+                });
+            }
+        };
+
+        // Was auch immer unterwegs passiert: die Oberflaeche bekommt am Ende genau ein
+        // Schlusssignal. Ohne das bliebe das Startfenster stehen, wenn ein Pfad im
+        // Abgleich ohne eigene Meldung zurueckkehrt.
+        let finished = false;
+        const finish = (phase, detail = {}) => {
+            if (finished) return;
+            finished = true;
+            sendPhase(phase, detail);
+        };
+
+        try {
+            const luxState = require('../luxcloud/state');
+            if (!await luxState.isLoggedIn()) return { canLaunch: true };
+
+            const tracked = await readInstanceState(instanceId).catch(() => null);
+            if (!tracked || !tracked.cloudLinked) return { canLaunch: true };
+
+            if (tracked.trashed) {
+                log('This instance is in the cloud trash - starting without a sync check.');
+                return { canLaunch: true };
+            }
+
+            log(`Checking whether "${instanceName}" is up to date...`);
+            flushLaunchLogBuffer(instanceName);
+
+            const options = await withSyncScope(instanceId, {
+                deviceUuid: await luxState.ensureDeviceUuid().catch(() => null),
+                // Damit ein Update vor dem Start die Modrinth-Verweise mit uebernimmt und
+                // der naechste Sync nicht wieder eine leere Revision erzeugt.
+                modCachePath: path.join(app.getPath('userData'), 'mod_cache.json')
+            });
+
+            let lastPercent = -1;
+            const result = await preLaunch.checkBeforeLaunch({
+                instanceDir,
+                instanceId,
+                instanceName,
+                options,
+                onProgress: (progress) => {
+                    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+                        mainWindow.webContents.send('luxcloud:pre-launch-progress', progress);
+                    }
+                    if (progress.phase !== 'updating' || !progress.totalBytes) return;
+
+                    const percent = Math.floor((progress.processedBytes / progress.totalBytes) * 100);
+                    if (percent >= lastPercent + 25) {
+                        lastPercent = percent;
+                        log(`Downloading the newer version... ${percent}%`);
+                        flushLaunchLogBuffer(instanceName);
+                    }
+                }
+            });
+
+            switch (result.decision) {
+                case preLaunch.DECISION.UPDATED:
+                    log(`Updated from revision ${result.localRevision} to ${result.revision} before starting.`);
+                    if (result.unavailable && result.unavailable.length > 0) {
+                        log(`${result.unavailable.length} file(s) could not be fetched and were left as they are.`);
+                    }
+                    finish('ready', { revision: result.revision });
+                    break;
+                case preLaunch.DECISION.CONFLICT:
+                    log(`Stopped: this PC is on revision ${result.localRevision}, the cloud on ${result.remoteRevision}, `
+                        + `and ${result.changedLocally} local file(s) changed. Resolve it in the instance's cloud panel.`);
+                    finish('conflict', {
+                        localRevision: result.localRevision,
+                        remoteRevision: result.remoteRevision
+                    });
+                    return {
+                        canLaunch: false,
+                        error: 'This instance changed on this PC and in the cloud. Resolve the conflict before playing.',
+                        conflict: {
+                            instanceName,
+                            instanceId,
+                            localRevision: result.localRevision,
+                            remoteRevision: result.remoteRevision,
+                            changedLocally: result.changedLocally,
+                            changed: result.changed || []
+                        }
+                    };
+                case preLaunch.DECISION.OFFLINE:
+                    log(`Cloud not reachable (${result.reason}) - starting with the local version.`);
+                    finish('offline', { reason: result.reason });
+                    break;
+                case preLaunch.DECISION.LAUNCH:
+                    log(result.pushAfterLaunch
+                        ? `Up to date (revision ${result.remoteRevision}); local changes are uploaded after playing.`
+                        : `Up to date (revision ${result.remoteRevision}).`);
+                    finish('ready', { revision: result.remoteRevision });
+                    break;
+                default:
+                    break;
+            }
+
+            finish('ready');
+            flushLaunchLogBuffer(instanceName);
+            return { canLaunch: true };
+        } catch (err) {
+            // Ein kaputter Abgleich darf niemanden vom Spielen abhalten.
+            log(`Check failed (${err.code || err.message}) - starting anyway.`);
+            finish('offline', { reason: err.code || 'check_failed' });
+            flushLaunchLogBuffer(instanceName);
+            return { canLaunch: true };
+        }
+    };
+
     const launchInstance = async (instanceName, quickPlay) => {
         if (runningInstances.has(instanceName) || activeLaunches.has(instanceName)) {
             const proc = childProcesses.get(instanceName);
@@ -1728,6 +1863,42 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                 supportsPersistence,
                 isExternal
             } = launchContext;
+
+            // Cloud-Abgleich vor dem Start. Muss hier im Hauptprozess passieren und nicht
+            // im Renderer: launchGame wird aus zehn verschiedenen Ecken der Oberflaeche
+            // aufgerufen (Play-Button, Command Palette, Absturzdialog, Fernsteuerung ...),
+            // und jede einzelne haette den Check sonst selbst mitbringen muessen.
+            if (supportsPersistence && !isExternal) {
+                // Der Abgleich kann dauern (er laedt notfalls eine ganze Revision nach),
+                // deshalb sieht die Oberflaeche sofort, dass etwas passiert.
+                if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+                    mainWindow.webContents.send('instance:status', {
+                        instanceName,
+                        status: 'launching',
+                        loader: config.loader || 'Vanilla',
+                        version: config.version
+                    });
+                }
+
+                const gate = await runCloudPreLaunchCheck(instanceName, instanceDir, config);
+                if (!gate.canLaunch) {
+                    activeLaunches.delete(instanceName);
+                    flushLaunchLogBuffer(instanceName);
+
+                    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+                        mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
+                        // Landet ueber den Sync-Context im vorhandenen Konfliktdialog, egal
+                        // welcher der vielen Startknoepfe den Versuch ausgeloest hat.
+                        mainWindow.webContents.send('luxcloud:launch-blocked', gate.conflict);
+                    }
+
+                    return {
+                        success: false,
+                        error: gate.error || 'This instance changed here and in the cloud.',
+                        cloudConflict: gate.conflict || null
+                    };
+                }
+            }
 
             const backupConfig = store.get('settings') || {};
             if (supportsBackups && backupConfig.backupSettings?.enabled && backupConfig.backupSettings?.onLaunch) {
@@ -2273,6 +2444,18 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                     .catch(() => {});
             }
 
+            // Die Sperre auf der Instanz muss auf JEDEM Weg wieder fallen, nicht nur nach
+            // einer regulaer beendeten Sitzung. Ein Start, der unterwegs scheitert, liess
+            // die Instanz sonst bis zum naechsten Neustart des Launchers pausiert zurueck
+            // -- und eine pausierte Instanz nimmt keinen einzigen Upload mehr an.
+            let cloudHoldReleased = false;
+            const releaseCloudHold = async () => {
+                if (!cloudInstanceId || cloudHoldReleased) return;
+                cloudHoldReleased = true;
+                await cloudSession.end(cloudInstanceId).catch(() => {});
+                autoSync.resume(instanceName);
+            };
+
             try {
                 const discord = require('./discord');
                 discord.setActivity(`Playing ${instanceName}`, 'Starting Game...', 'lux_icon', 'Lux', runningInstances.get(instanceName));
@@ -2332,12 +2515,13 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                     playtimeSessionId = null;
 
                     if (cloudInstanceId) {
-                        await cloudSession.end(cloudInstanceId).catch(() => {});
+                        await releaseCloudHold();
                         await cloudPlaytime.seedIfNeeded(cloudInstanceId, instanceDir).catch(() => {});
                         await cloudPlaytime.creditSession(cloudInstanceId, sessionTime).catch(() => {});
                         cloudPlaytime.push(cloudInstanceId).catch(() => {});
-                        autoSync.resume(instanceName);
-                        autoSync.notifyChanged(instanceName, 'after-play');
+                        autoSync.notifyChanged(instanceName, 'after-play', {
+                            delayMs: autoSync.AFTER_PLAY_DEBOUNCE_MS
+                        });
                     }
 
                     try {
@@ -2438,6 +2622,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             try {
                 if (activeLaunches.get(instanceName)?.cancelled) {
                     console.log(`[Launcher] Launch aborted before spawn for ${instanceName}`);
+                    await releaseCloudHold();
                     stopLaunchWorker(instanceName);
                     clearLaunchLogBuffer(instanceName);
                     activeLaunches.delete(instanceName);
@@ -2598,6 +2783,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                 });
 
                 if (!launchResult?.success) {
+                    await releaseCloudHold();
                     stopLaunchWorker(instanceName);
                     console.error('[Launcher] Launch failed in worker:', launchResult?.error || 'Unknown error');
                     clearLaunchLogBuffer(instanceName);
@@ -2609,6 +2795,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                 }
             } catch (e) {
                 console.error('Launch error:', e);
+                await releaseCloudHold();
                 stopLaunchWorker(instanceName);
                 clearLaunchLogBuffer(instanceName);
                 runningInstances.delete(instanceName);
@@ -2628,6 +2815,9 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             return { success: true };
         } catch (e) {
             console.error('Initial launch error:', e);
+            // cloudInstanceId ist hier nicht mehr im Sichtbereich; resume ist auf einer
+            // nicht pausierten Instanz folgenlos, deshalb genuegt der pauschale Aufruf.
+            autoSync.resume(instanceName);
             clearLaunchLogBuffer(instanceName);
             activeLaunches.delete(instanceName);
             runningInstances.delete(instanceName);

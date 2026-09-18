@@ -32,7 +32,8 @@ export type SyncStatus =
     | 'pending'
     | 'conflict'
     | 'offline'
-    | 'cloud-only';
+    | 'cloud-only'
+    | 'trashed';
 
 export type InstanceProgress = {
     phase: SyncPhase;
@@ -62,10 +63,19 @@ export type ConflictInfo = {
     changed: { path: string; reason: string }[];
 };
 
+export type PreLaunchState = {
+    instanceName: string;
+    phase: 'checking' | 'updating' | 'ready' | 'offline';
+    files?: number;
+    done?: number;
+    downloadedBytes?: number;
+};
+
 type LuxSyncState = {
     supported: boolean;
     loading: boolean;
     offline: boolean;
+    preLaunch: PreLaunchState | null;
     cloudInstances: CloudInstance[];
     progress: Record<string, InstanceProgress>;
     statuses: Record<string, SyncStatus>;
@@ -83,6 +93,8 @@ type LuxSyncApi = LuxSyncState & {
     dismissConflict: (instanceName: string) => void;
     dismissSessionWarning: () => void;
     dismissTransferFailure: (instanceName: string) => void;
+    clearStatus: (instanceName: string) => void;
+    cancelTransfer: (instanceName: string) => Promise<any>;
     statusFor: (instanceName: string, instanceId?: string | null) => SyncStatus;
     activeTransfers: { instanceName: string; progress: InstanceProgress }[];
 };
@@ -91,6 +103,7 @@ const INITIAL: LuxSyncState = {
     supported: true,
     loading: false,
     offline: false,
+    preLaunch: null,
     cloudInstances: [],
     progress: {},
     statuses: {},
@@ -237,19 +250,108 @@ export const LuxSyncProvider = ({
             if (!payload || !payload.instanceName) return;
             setState((current) => {
                 const nextStatuses = { ...current.statuses };
-                if (payload.event === 'error') {
+                if (payload.event === 'scheduled') {
+                    // Eine erkannte Aenderung wartet auf ihren Upload. Ohne diesen Zustand
+                    // sah die Instanz bis zum Start der Uebertragung aus wie eine, an der
+                    // nichts zu tun ist.
+                    nextStatuses[payload.instanceName] = 'pending';
+                } else if (payload.event === 'error') {
                     nextStatuses[payload.instanceName] = payload.retryable ? 'pending' : 'conflict';
                 } else if (payload.event === 'done') {
-                    nextStatuses[payload.instanceName] = 'synced';
+                    // A skipped run is not a completed sync. Reporting the trashed case as
+                    // 'synced' was what made the panel claim everything was up to date.
+                    const reason = payload.result?.reason;
+                    if (reason === 'instance_trashed') nextStatuses[payload.instanceName] = 'trashed';
+                    else if (reason === 'revision_conflict') nextStatuses[payload.instanceName] = 'conflict';
+                    else if (reason === 'update_available') nextStatuses[payload.instanceName] = 'pending';
+                    else nextStatuses[payload.instanceName] = 'synced';
                 }
                 return { ...current, statuses: nextStatuses };
             });
-            if (payload.event === 'done') refresh();
+            if (payload.event === 'done' && payload.result?.reason !== 'instance_trashed') refresh();
         };
 
         const onSessionWarning = (payload: any) => {
             if (!payload || !Array.isArray(payload.others) || payload.others.length === 0) return;
             patch({ sessionWarning: { instanceName: payload.instanceName, others: payload.others } });
+        };
+
+        // The pre-launch gate speaks its own phases ('checking', 'updating', 'ready',
+        // 'conflict') and mixes in the downloader's while it fetches. Routing that through
+        // the generic progress handler left the badge stuck on "syncing", because 'ready'
+        // arrives after the downloader's 'done' and means the opposite of a new transfer.
+        const onPreLaunchProgress = (payload: any) => {
+            const name = payload && (payload.instanceName || payload.instanceUuid);
+            if (!name) return;
+
+            const phase = payload.phase;
+
+            // Ende des Starttors: Fenster schliessen (bei 'ready' kurz stehen lassen,
+            // damit die Meldung lesbar ist) und einen Endstatus setzen.
+            if (phase === 'ready' || phase === 'conflict' || phase === 'offline' || phase === 'error') {
+                setState((current) => {
+                    const nextProgress = { ...current.progress };
+                    delete nextProgress[name];
+
+                    const nextStatuses = { ...current.statuses };
+                    if (phase === 'ready') nextStatuses[name] = 'synced';
+                    else if (phase === 'conflict') nextStatuses[name] = 'conflict';
+                    else if (phase === 'offline') nextStatuses[name] = 'offline';
+                    else nextStatuses[name] = 'pending';
+
+                    return {
+                        ...current,
+                        progress: nextProgress,
+                        statuses: nextStatuses,
+                        preLaunch: phase === 'ready' || phase === 'offline'
+                            ? { instanceName: name, phase }
+                            : null
+                    };
+                });
+
+                if (phase === 'ready' || phase === 'offline') {
+                    setTimeout(() => {
+                        setState((current) => (current.preLaunch && current.preLaunch.instanceName === name
+                            ? { ...current, preLaunch: null }
+                            : current));
+                    }, 1200);
+                }
+                return;
+            }
+
+            setState((current) => ({
+                ...current,
+                preLaunch: {
+                    instanceName: name,
+                    phase: phase === 'checking' ? 'checking' : 'updating',
+                    files: payload.files ?? current.preLaunch?.files,
+                    done: payload.done ?? current.preLaunch?.done,
+                    downloadedBytes: payload.networkBytes ?? payload.downloadedBytes ?? current.preLaunch?.downloadedBytes
+                }
+            }));
+
+            onProgress({ ...payload, instanceName: name });
+        };
+
+        // The pre-launch check refused to start the game. Feeding it through the same
+        // conflict state means the existing dialog opens no matter which of the many
+        // play buttons the user pressed.
+        const onLaunchBlocked = (payload: any) => {
+            if (!payload || !payload.instanceName) return;
+            setState((current) => ({
+                ...current,
+                statuses: { ...current.statuses, [payload.instanceName]: 'conflict' },
+                conflicts: {
+                    ...current.conflicts,
+                    [payload.instanceName]: {
+                        instanceName: payload.instanceName,
+                        localRevision: payload.localRevision ?? 0,
+                        remoteRevision: payload.remoteRevision ?? 0,
+                        changedLocally: payload.changedLocally ?? 0,
+                        changed: Array.isArray(payload.changed) ? payload.changed : []
+                    }
+                }
+            }));
         };
 
         if (typeof api.onLuxCloudSyncProgress === 'function') {
@@ -263,6 +365,12 @@ export const LuxSyncProvider = ({
         }
         if (typeof api.onLuxCloudSessionWarning === 'function') {
             unsubscribers.push(api.onLuxCloudSessionWarning(onSessionWarning));
+        }
+        if (typeof api.onLuxCloudLaunchBlocked === 'function') {
+            unsubscribers.push(api.onLuxCloudLaunchBlocked(onLaunchBlocked));
+        }
+        if (typeof api.onLuxCloudPreLaunchProgress === 'function') {
+            unsubscribers.push(api.onLuxCloudPreLaunchProgress(onPreLaunchProgress));
         }
 
         return () => {
@@ -286,7 +394,29 @@ export const LuxSyncProvider = ({
         const api = bridge();
         if (!api || typeof api.luxCloudSyncInstance !== 'function') return null;
 
-        const result = await api.luxCloudSyncInstance(instanceName, options);
+        let result: any;
+        try {
+            result = await api.luxCloudSyncInstance(instanceName, options);
+        } catch (err: any) {
+            // Auch ein geplatzter IPC-Aufruf muss die Anzeige aus dem laufenden Zustand
+            // holen, sonst dreht sie sich weiter, obwohl nichts mehr passiert.
+            clearProgress(instanceName);
+            setState((current) => ({
+                ...current,
+                statuses: { ...current.statuses, [instanceName]: 'conflict' },
+                transferFailures: {
+                    ...current.transferFailures,
+                    [instanceName]: {
+                        instanceName,
+                        error: 'unknown_error',
+                        message: String(err?.message || err),
+                        at: Date.now()
+                    }
+                }
+            }));
+            return { success: false, error: 'unknown_error', message: String(err?.message || err) };
+        }
+
         clearProgress(instanceName);
         if (result && result.success === false) {
             if (result.error === 'revision_conflict') {
@@ -304,11 +434,40 @@ export const LuxSyncProvider = ({
                         }
                     }
                 }));
+            } else if (result.error === 'instance_trashed') {
+                // A terminal state, not a pending one: nothing will change until the user
+                // restores the instance, so the indicator must stop suggesting a retry.
+                setState((current) => ({
+                    ...current,
+                    statuses: { ...current.statuses, [instanceName]: 'trashed' }
+                }));
             } else if (OFFLINE_CODES.has(result.error)) {
                 setState((current) => ({
                     ...current,
                     offline: true,
                     statuses: { ...current.statuses, [instanceName]: 'pending' }
+                }));
+            } else {
+                // Jeder andere Fehlschlag braucht ebenfalls einen Schlusspunkt. Ohne ihn
+                // blieb der zuletzt gemeldete 'syncing'-Status stehen und die Instanz sah
+                // aus, als laufe sie ewig weiter.
+                setState((current) => ({
+                    ...current,
+                    statuses: {
+                        ...current.statuses,
+                        [instanceName]: result.error === 'cancelled' ? 'pending' : 'conflict'
+                    },
+                    transferFailures: result.error === 'cancelled'
+                        ? current.transferFailures
+                        : {
+                            ...current.transferFailures,
+                            [instanceName]: {
+                                instanceName,
+                                error: result.error || 'unknown_error',
+                                message: result.message || 'The sync stopped',
+                                at: Date.now()
+                            }
+                        }
                 }));
             }
             return result;
@@ -364,6 +523,36 @@ export const LuxSyncProvider = ({
         });
     }, []);
 
+    // Stops a running transfer. The backend cuts the pending requests and the loops bail
+    // out between two files, so nothing is left half written.
+    const cancelTransfer = useCallback(async (instanceName: string) => {
+        const api = bridge();
+        if (!api || typeof api.luxCloudCancelTransfer !== 'function') return null;
+
+        const result = await api.luxCloudCancelTransfer(instanceName);
+        setState((current) => {
+            const progress = { ...current.progress };
+            delete progress[instanceName];
+            return {
+                ...current,
+                progress,
+                statuses: { ...current.statuses, [instanceName]: 'pending' }
+            };
+        });
+        return result;
+    }, []);
+
+    // Drops a sticky status (a trashed instance that was restored, for instance) so
+    // statusFor falls back to deriving it from the cloud listing again.
+    const clearStatus = useCallback((instanceName: string) => {
+        setState((current) => {
+            if (!(instanceName in current.statuses)) return current;
+            const statuses = { ...current.statuses };
+            delete statuses[instanceName];
+            return { ...current, statuses };
+        });
+    }, []);
+
     const dismissSessionWarning = useCallback(() => patch({ sessionWarning: null }), [patch]);
 
     const statusFor = useCallback((instanceName: string, instanceId?: string | null): SyncStatus => {
@@ -394,10 +583,12 @@ export const LuxSyncProvider = ({
         dismissConflict,
         dismissSessionWarning,
         dismissTransferFailure,
+        clearStatus,
+        cancelTransfer,
         statusFor,
         activeTransfers
     }), [state, refresh, syncInstance, restoreInstance, resolveConflict,
-        dismissConflict, dismissSessionWarning, dismissTransferFailure, statusFor, activeTransfers]);
+        dismissConflict, dismissSessionWarning, dismissTransferFailure, clearStatus, cancelTransfer, statusFor, activeTransfers]);
 
     return <LuxSyncContext.Provider value={value}>{children}</LuxSyncContext.Provider>;
 };

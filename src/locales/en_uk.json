@@ -104,7 +104,8 @@
         "useful_tools": "Useful Tools",
         "maintenance_title": "Under Maintenance",
         "maintenance_description": "This tab is currently unavailable, it will be added in a future update.",
-        "maintenance_back_home": "Back to homepage"
+        "maintenance_back_home": "Back to homepage",
+        "logout_minecraft": "Sign out of Minecraft"
     },
     "client_page": {
         "title": "Open Client",
@@ -727,7 +728,9 @@
             "title": "Settings Categories",
             "subtitle": "Select a category on the left to view matching entries on the right.",
             "search_placeholder": "Search categories (e.g. Java, Cloud, Update...)",
-            "search_empty": "No categories found."
+            "search_empty": "No categories found.",
+            "search_placeholder_all": "Search all settings (e.g. Modrinth, Java, RAM...)",
+            "search_empty_all": "No settings match your search."
         }
     },
     "extensions": {
@@ -1130,7 +1133,8 @@
             "java_requirement_mismatch": {
                 "title": "Higher Java Version Required",
                 "description": "This instance requires Java {{version}} or higher to run.",
-                "fix_text": "Update Java Version"
+                "fix_text": "Update Java Version",
+                "description_unknown": "This instance requires a newer Java version than the one currently selected."
             },
             "pixel_format_not_accelerated": {
                 "title": "Graphics Driver Issue",
@@ -1140,12 +1144,14 @@
             "opengl_version_too_low": {
                 "title": "Legacy Graphics Hardware",
                 "description": "Your graphics card only supports OpenGL up to {{version}}, which is below the requirement for this Minecraft version.",
-                "fix_text": "Open Support Page"
+                "fix_text": "Open Support Page",
+                "description_unknown": "Your graphics card does not support the OpenGL version this Minecraft version requires."
             },
             "duplicate_mods": {
                 "title": "Duplicate Mods Detected",
                 "description": "You have multiple versions of the mod \"{{mod}}\" installed. Mod loaders cannot handle duplicates.",
-                "fix_text": "Open Mods Folder"
+                "fix_text": "Open Mods Folder",
+                "description_unknown": "The same mod is installed more than once. Mod loaders cannot handle duplicates."
             },
             "config_corruption": {
                 "title": "Corrupted Configuration",
@@ -1155,7 +1161,8 @@
             "mixin_transformer_error": {
                 "title": "Mod Conflict (Mixin)",
                 "description": "A conflict occurred while patching the game code. Mod \"{{mod}}\" is the likely cause.",
-                "fix_text": "Disable Mod"
+                "fix_text": "Disable Mod",
+                "description_unknown": "A conflict occurred while patching the game code. One of your mods is the likely cause."
             },
             "outdated_loader": {
                 "title": "Outdated Mod Loader",
@@ -1170,7 +1177,11 @@
             "needs_version_installed": "\"{{modName}}\" needs \"{{dependencyName}}\" {{requiredVersion}}+, but installed is {{foundVersion}}.",
             "needs_version": "\"{{modName}}\" needs \"{{dependencyName}}\" in version {{requiredVersion}} or newer.",
             "missing_dependency": "Missing required dependency \"{{dependencyName}}\" for \"{{modName}}\".",
-            "generic_conflict": "A mod dependency conflict was detected."
+            "generic_conflict": "A mod dependency conflict was detected.",
+            "needs_version_installed_no_mod": "Requires \"{{dependencyName}}\" {{requiredVersion}}+, but installed is {{foundVersion}}.",
+            "needs_version_no_mod": "Requires \"{{dependencyName}}\" in version {{requiredVersion}} or newer.",
+            "missing_dependency_no_mod": "The required dependency \"{{dependencyName}}\" is missing.",
+            "required_by": "Required by: {{affectedMods}}"
         }
     },
     "java_required_modal": {
@@ -1333,5 +1344,11 @@
         "copied": "Project link copied to clipboard!",
         "copy_failed": "Could not copy the project link.",
         "open_failed": "Could not open the project page."
+    },
+    "account_switcher": {
+        "title": "Choose an account",
+        "subtitle": "Pick the Minecraft account you want to play with.",
+        "empty": "No saved accounts left. Add one to continue.",
+        "remove": "Remove this account"
     }
 }

@@ -278,11 +278,23 @@ const LuxAccountPanel = () => {
                                 {t('settings.lux_account.signed_out_desc', 'Optional. Lux works fully without a Lux account — signing in adds cloud sync for your instances across your PCs.')}
                             </p>
 
+                            {account.sessionUnreadable && (
+                                <p className="rounded-lg border border-amber-400/25 bg-amber-500/[0.08] p-3 text-xs leading-relaxed text-amber-200/85">
+                                    {t('settings.lux_account.session_unreadable',
+                                        'Your saved Lux session is still here but this system\'s keyring will no longer open it, '
+                                        + 'so cloud sync and cloud backups are paused. Signing in once more stores a session it can read.')}
+                                </p>
+                            )}
                             {!account.deepLinkReady && (
                                 <p className="rounded-lg border border-amber-400/25 bg-amber-500/[0.08] p-3 text-xs leading-relaxed text-amber-200/85">
-                                    {t('settings.lux_account.no_deep_link',
-                                        'This system cannot hand the browser result back to Lux automatically. '
-                                        + 'Sign in as usual, then type the six-character code the website shows into the field below.')}
+                                    {account.packaging === 'flatpak' || account.packaging === 'snap'
+                                        ? t('settings.lux_account.no_deep_link_sandboxed',
+                                            'The {{packaging}} build cannot receive the browser result back automatically. '
+                                            + 'Sign in as usual, then type the six-character code the website shows into the field below.',
+                                            { packaging: account.packaging })
+                                        : t('settings.lux_account.no_deep_link',
+                                            'This system cannot hand the browser result back to Lux automatically. '
+                                            + 'Sign in as usual, then type the six-character code the website shows into the field below.')}
                                 </p>
                             )}
                             <div className="flex flex-wrap items-center gap-3">

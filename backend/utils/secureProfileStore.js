@@ -14,22 +14,33 @@ function encryptToken(value) {
     }
 }
 
-function decryptToken(value) {
-    if (!value || typeof value !== 'string') return value;
+// Returns why a token could not be read, not just that it could not be.
+// On Linux the backend safeStorage picks (gnome-libsecret, kwallet, or the plaintext
+// "basic" fallback) is chosen per run from what the session exposes. A sandboxed
+// build that cannot reach org.freedesktop.secrets gets a different backend than the
+// run that wrote the token, and the ciphertext then simply will not open again.
+// Reporting that as an empty token is what makes the app look silently signed out.
+function decryptTokenDetailed(value) {
+    if (!value || typeof value !== 'string') return { value: value || null, status: 'empty' };
 
     if (!value.startsWith(ENC_PREFIX)) {
-        return value;
+        return { value, status: 'plaintext' };
     }
 
-    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return null;
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
+        return { value: null, status: 'unavailable' };
+    }
 
     try {
         const base64 = value.slice(ENC_PREFIX.length);
-        const decrypted = safeStorage.decryptString(Buffer.from(base64, 'base64'));
-        return decrypted;
-    } catch {
-        return null;
+        return { value: safeStorage.decryptString(Buffer.from(base64, 'base64')), status: 'ok' };
+    } catch (err) {
+        return { value: null, status: 'failed', reason: (err && err.message) || null };
     }
+}
+
+function decryptToken(value) {
+    return decryptTokenDetailed(value).value;
 }
 
 function toStoredProfile(profile) {
@@ -111,6 +122,7 @@ function setAccounts(store, accounts) {
 module.exports = {
     encryptToken,
     decryptToken,
+    decryptTokenDetailed,
     getUserProfile,
     setUserProfile,
     getAccounts,

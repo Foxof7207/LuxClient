@@ -104,7 +104,8 @@
         "useful_tools": "Useful Tools",
         "maintenance_title": "Under Maintenance",
         "maintenance_description": "This tab is currently unavailable, it will be added in a future update.",
-        "maintenance_back_home": "Back to homepage"
+        "maintenance_back_home": "Back to homepage",
+        "logout_minecraft": "Von Minecraft abmelden"
     },
     "client_page": {
         "title": "Open Client",
@@ -747,7 +748,9 @@
             "title": "Einstellungen",
             "subtitle": "Wähle links eine Kategorie, rechts siehst du die passenden Einträge.",
             "search_placeholder": "Kategorien suchen (z.B. Java, Cloud, Update...)",
-            "search_empty": "Keine Kategorie gefunden."
+            "search_empty": "Keine Kategorie gefunden.",
+            "search_placeholder_all": "Alle Einstellungen durchsuchen (z. B. Modrinth, Java, RAM...)",
+            "search_empty_all": "Keine Einstellung passt zur Suche."
         }
     },
     "extensions": {
@@ -1155,7 +1158,8 @@
             "java_requirement_mismatch": {
                 "title": "Höhere Java-Version erforderlich",
                 "description": "Diese Instanz benötigt Java {{version}} oder höher zum Starten.",
-                "fix_text": "Java-Version aktualisieren"
+                "fix_text": "Java-Version aktualisieren",
+                "description_unknown": "Diese Instanz benötigt eine neuere Java-Version als die aktuell ausgewählte."
             },
             "pixel_format_not_accelerated": {
                 "title": "Grafiktreiber-Problem",
@@ -1165,12 +1169,14 @@
             "opengl_version_too_low": {
                 "title": "Veraltete Grafik-Hardware",
                 "description": "Deine Grafikkarte unterstützt nur OpenGL bis {{version}}, was unter der Anforderung für diese Minecraft-Version liegt.",
-                "fix_text": "Support-Seite öffnen"
+                "fix_text": "Support-Seite öffnen",
+                "description_unknown": "Deine Grafikkarte unterstützt die OpenGL-Version nicht, die diese Minecraft-Version voraussetzt."
             },
             "duplicate_mods": {
                 "title": "Doppelte Mods erkannt",
                 "description": "Du hast mehrere Versionen der Mod „{{mod}}“ installiert. Mod-Loader können keine Duplikate verarbeiten.",
-                "fix_text": "Mod-Ordner öffnen"
+                "fix_text": "Mod-Ordner öffnen",
+                "description_unknown": "Derselbe Mod ist mehrfach installiert. Mod-Loader kommen mit Duplikaten nicht zurecht."
             },
             "config_corruption": {
                 "title": "Beschädigte Konfiguration",
@@ -1180,7 +1186,8 @@
             "mixin_transformer_error": {
                 "title": "Mod-Konflikt (Mixin)",
                 "description": "Beim Patchen des Spielcodes ist ein Konflikt aufgetreten. Die Mod „{{mod}}“ ist die wahrscheinliche Ursache.",
-                "fix_text": "Mod deaktivieren"
+                "fix_text": "Mod deaktivieren",
+                "description_unknown": "Beim Patchen des Spielcodes ist ein Konflikt aufgetreten. Einer deiner Mods ist die wahrscheinliche Ursache."
             },
             "outdated_loader": {
                 "title": "Veralteter Mod-Loader",
@@ -1195,7 +1202,11 @@
             "needs_version_installed": "„{{modName}}“ benötigt „{{dependencyName}}“ {{requiredVersion}}+, aber installiert ist {{foundVersion}}.",
             "needs_version": "„{{modName}}“ benötigt „{{dependencyName}}“ in Version {{requiredVersion}} oder neuer.",
             "missing_dependency": "Benötigte Abhängigkeit „{{dependencyName}}“ für „{{modName}}“ fehlt.",
-            "generic_conflict": "Ein Mod-Abhängigkeitskonflikt wurde erkannt."
+            "generic_conflict": "Ein Mod-Abhängigkeitskonflikt wurde erkannt.",
+            "needs_version_installed_no_mod": "Benötigt „{{dependencyName}}“ {{requiredVersion}}+, installiert ist aber {{foundVersion}}.",
+            "needs_version_no_mod": "Benötigt „{{dependencyName}}“ in Version {{requiredVersion}} oder neuer.",
+            "missing_dependency_no_mod": "Die benötigte Abhängigkeit „{{dependencyName}}“ fehlt.",
+            "required_by": "Benötigt von: {{affectedMods}}"
         }
     },
     "java_required_modal": {
@@ -1344,5 +1355,11 @@
         "copied": "Projekt-Link in die Zwischenablage kopiert!",
         "copy_failed": "Projekt-Link konnte nicht kopiert werden.",
         "open_failed": "Projektseite konnte nicht geöffnet werden."
+    },
+    "account_switcher": {
+        "title": "Konto auswählen",
+        "subtitle": "Wähle das Minecraft-Konto, mit dem du spielen möchtest.",
+        "empty": "Keine gespeicherten Konten mehr. Füge eines hinzu, um fortzufahren.",
+        "remove": "Dieses Konto entfernen"
     }
 }

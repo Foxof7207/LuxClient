@@ -4,6 +4,7 @@ const { app, shell } = require('electron');
 
 const api = require('./api');
 const state = require('./state');
+const { describeSandbox, isConfined } = require('../utils/sandbox');
 const {
     ACCESS_TOKEN_REFRESH_MARGIN_MS,
     LOGIN_TIMEOUT_MS,
@@ -26,6 +27,15 @@ function createPkcePair() {
 }
 
 function isDeepLinkReady() {
+    // Inside a Flatpak or Snap sandbox the scheme handler lives in the host's desktop
+    // database, and the tools Electron asks (xdg-mime, update-desktop-database) are not
+    // in the runtime - so the answer that comes back is "not registered" whether or not
+    // the package actually declares x-scheme-handler/luxclient. Calling that ready is
+    // what left sandboxed sign-ins staring at "Waiting for your browser..." for the full
+    // three-minute timeout. Report it as not ready instead: the website hands out a
+    // manual code on the same approval, and that code works either way.
+    if (isConfined()) return false;
+
     try {
         if (app.isPackaged) return app.isDefaultProtocolClient('luxclient');
         return app.isDefaultProtocolClient('luxclient', process.execPath, [app.getAppPath()]);
@@ -42,8 +52,13 @@ function emitAccountChanged(reason) {
 
 async function getAccount() {
     const current = await state.readState();
+    const sandbox = describeSandbox();
     return {
         loggedIn: Boolean(current.refreshToken && current.user),
+        // The saved session is there but unreadable - the account was never signed out,
+        // the OS keyring just cannot open what it wrote. Signing in again repairs it.
+        sessionUnreadable: Boolean(current.sessionUnreadable),
+        packaging: sandbox.kind,
         user: current.user || null,
         device: {
             uuid: current.deviceUuid || null,

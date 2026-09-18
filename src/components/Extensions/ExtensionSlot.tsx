@@ -24,14 +24,17 @@ class ExtensionErrorBoundary extends React.Component<{ children: React.ReactNode
     }
 }
 
-const ExtensionSlot = ({ name, className, context }: { name: string; className?: string; context?: any }) => {
+const ExtensionSlot = ({ name, className, context, style }: { name: string; className?: string; context?: any; style?: React.CSSProperties }) => {
     const { getViews } = useExtensions();
     const views = getViews(name);
 
     if (views.length === 0) return null;
 
+    const declaredWidth = views.reduce((sum, view) => sum + (Number(view.width) || 0), 0);
+    const slotStyle = declaredWidth > 0 ? { minWidth: declaredWidth, ...style } : style;
+
     return (
-        <div className={className}>
+        <div className={className} style={slotStyle}>
             {views.map(view => {
                 const Component = view.component;
                 return (

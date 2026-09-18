@@ -107,6 +107,9 @@ export default function CloudDashboard({ onOpenInstance }: { onOpenInstance?: (n
                 setError(result.message || result.error);
                 return;
             }
+            // The instance is active again, so let its sync status be derived afresh
+            // instead of staying stuck on 'trashed'.
+            if (instance.name) sync?.clearStatus(instance.name);
             await loadTrash();
             await sync?.refresh();
             await account.reload();

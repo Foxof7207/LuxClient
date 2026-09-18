@@ -7,7 +7,8 @@ import {
     RefreshCw,
     Check,
     AlertTriangle,
-    ArrowUp
+    ArrowUp,
+    Trash2
 } from 'lucide-react';
 
 import type { SyncStatus } from '../../context/LuxSyncContext';
@@ -26,7 +27,8 @@ const STYLES: Record<SyncStatus, { icon: any; tone: string; spin?: boolean }> = 
     pending: { icon: ArrowUp, tone: 'text-amber-300 bg-amber-500/10 border-amber-400/25' },
     conflict: { icon: AlertTriangle, tone: 'text-red-300 bg-red-500/10 border-red-400/30' },
     offline: { icon: CloudOff, tone: 'text-white/45 bg-white/5 border-white/10' },
-    'cloud-only': { icon: CloudDownload, tone: 'text-violet-300 bg-violet-500/10 border-violet-400/25' }
+    'cloud-only': { icon: CloudDownload, tone: 'text-violet-300 bg-violet-500/10 border-violet-400/25' },
+    trashed: { icon: Trash2, tone: 'text-white/45 bg-white/5 border-white/10' }
 };
 
 const LABEL_KEYS: Record<SyncStatus, [string, string]> = {
@@ -36,7 +38,8 @@ const LABEL_KEYS: Record<SyncStatus, [string, string]> = {
     pending: ['cloud.status.pending', 'Waiting to sync'],
     conflict: ['cloud.status.conflict', 'Conflict'],
     offline: ['cloud.status.offline', 'Offline'],
-    'cloud-only': ['cloud.status.cloud_only', 'In the cloud']
+    'cloud-only': ['cloud.status.cloud_only', 'In the cloud'],
+    trashed: ['cloud.status.trashed', 'In the cloud trash']
 };
 
 export default function CloudStatusBadge({ status, compact = false, percent = null, className = '' }: Props) {
