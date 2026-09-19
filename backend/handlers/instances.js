@@ -20,6 +20,10 @@ const {
     migrateLegacyInstancesToPrimarySync
 } = require('../utils/instances-path');
 const { downloadAndCacheIcon } = require('../utils/icon-cache');
+const { resolveContentMetadata } = require('../utils/modMetadata');
+const { updateModCache } = require('../utils/modCache');
+
+const notifyContentChanged = (instanceName) => app.emit('lux:instance-content-changed', instanceName || null);
 const { ensureInstanceId, newInstanceId } = require('../luxcloud/instanceIdentity');
 const { extractIconToFile, resolveIconForRenderer } = require('../luxcloud/instanceIcon');
 let appData;
@@ -2928,23 +2932,16 @@ module.exports = (ipcMain, win) => {
                                     if (!await fs.pathExists(filePath)) return;
                                     const stats = await fs.stat(filePath);
                                     const cacheKey = `${fileName}-${stats.size}`;
-                                    let modCache = {};
 
-                                    if (await fs.pathExists(modCachePath)) {
-                                        modCache = await fs.readJson(modCachePath).catch(() => ({}));
-                                    }
-
-                                    modCache[cacheKey] = {
-                                        title: title || fileName,
-                                        icon: null,
-                                        version: title || null,
-                                        projectId,
-                                        versionId,
-                                        source,
-                                        timestamp: Date.now()
-                                    };
-
-                                    await fs.writeJson(modCachePath, modCache);
+                                    await updateModCache(modCachePath, {
+                                        [cacheKey]: {
+                                            title: title && title !== fileName ? title : null,
+                                            projectId,
+                                            versionId,
+                                            source,
+                                            timestamp: Date.now()
+                                        }
+                                    });
                                 } catch (cacheError) {
                                     appendLog(`Failed to cache auto install metadata for ${fileName}: ${cacheError.message}`);
                                 }
@@ -3511,88 +3508,39 @@ module.exports = (ipcMain, win) => {
                     return { success: true, packs: [] };
                 }
 
-                const modCachePath = path.join(appData, 'mod_cache.json');
-                let modCache = {};
-                try {
-                    if (await fs.pathExists(modCachePath)) {
-                        modCache = await fs.readJson(modCachePath);
-                    }
-                } catch (e) { console.error('Failed to load cache for RPs', e); }
-
                 const files = await fs.readdir(rpDir, { withFileTypes: true });
 
-                const rpObjects = (await Promise.all(files.map(async (dirent) => {
+                const items = (await Promise.all(files.map(async (dirent) => {
                     try {
                         const fileName = dirent.name;
+                        const lower = fileName.toLowerCase();
+                        if (!(dirent.isDirectory() || lower.endsWith('.zip') || lower.endsWith('.rar'))) return null;
                         const filePath = path.join(rpDir, fileName);
-
-                        const isPack = dirent.isDirectory() ||
-                            fileName.toLowerCase().endsWith('.zip') ||
-                            fileName.toLowerCase().endsWith('.rar');
-
-                        if (!isPack) return null;
-
                         const stats = await fs.stat(filePath);
-                        let title = null, icon = null, version = null;
-
-                        const cacheKey = `${fileName}-${stats.size}`;
-                        if (modCache[cacheKey] && modCache[cacheKey].projectId) {
-                            title = modCache[cacheKey].title;
-                            icon = modCache[cacheKey].icon;
-                            version = modCache[cacheKey].version;
-                        } else if (dirent.isFile()) {
-                            try {
-                                const hash = await calculateSha1(filePath);
-                                if (modCache[hash]) {
-                                    console.log(`[Instances:RP] Found legacy SHA1 cache for ${fileName}`);
-                                    title = modCache[hash].title;
-                                    icon = modCache[hash].icon;
-                                    version = modCache[hash].version;
-                                    const projectId = modCache[hash].projectId;
-                                    const versionId = modCache[hash].versionId;
-
-                                    modCache[cacheKey] = { title, icon, version, projectId, versionId, hash };
-                                } else {
-                                    const res = await axios.get(`https://api.modrinth.com/v2/version_file/${hash}`, {
-                                        headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                        timeout: 3000
-                                    });
-                                    const versionData = res.data;
-                                    const versionId = versionData.id;
-                                    const projectId = versionData.project_id;
-
-                                    const projectRes = await axios.get(`https://api.modrinth.com/v2/project/${projectId}`, {
-                                        headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                        timeout: 3000
-                                    });
-                                    const projectData = projectRes.data;
-
-                                    title = projectData.title;
-                                    icon = projectData.icon_url;
-                                    version = versionData.version_number;
-
-                                    modCache[cacheKey] = { title, icon, version, projectId, versionId, hash };
-                                }
-                            } catch (e) { }
-                        }
-
-                        return {
-                            name: fileName,
-                            title: title || fileName,
-                            icon,
-                            version,
-                            projectId: modCache[cacheKey]?.projectId,
-                            versionId: modCache[cacheKey]?.versionId,
-                            size: stats.size,
-                            enabled: true
-                        };
+                        return { fileName, filePath, size: stats.size, isFile: dirent.isFile() };
                     } catch (e) {
                         console.error(`Error processing resource pack:`, e);
                         return null;
                     }
-                }))).filter(p => p !== null);
+                }))).filter(Boolean);
 
-                await fs.writeJson(modCachePath, modCache).catch(() => { });
+                const resolved = await resolveContentMetadata({
+                    items,
+                    modCachePath: path.join(appData, 'mod_cache.json'),
+                    hashFile: calculateSha1,
+                    cacheIcons: false
+                });
+
+                const rpObjects = resolved.map(({ item, title, icon, version, projectId, versionId }) => ({
+                    name: item.fileName,
+                    title: title || item.fileName,
+                    icon,
+                    version,
+                    projectId,
+                    versionId,
+                    size: item.size,
+                    enabled: true
+                }));
 
                 return { success: true, packs: rpObjects };
             } catch (e) {
@@ -3614,87 +3562,39 @@ module.exports = (ipcMain, win) => {
                     return { success: true, shaders: [] };
                 }
 
-                const modCachePath = path.join(appData, 'mod_cache.json');
-                let modCache = {};
-                try {
-                    if (await fs.pathExists(modCachePath)) {
-                        modCache = await fs.readJson(modCachePath);
-                    }
-                } catch (e) { console.error('Failed to load cache for shaders', e); }
-
                 const files = await fs.readdir(shaderDir, { withFileTypes: true });
 
-                const shaderObjects = (await Promise.all(files.map(async (dirent) => {
+                const items = (await Promise.all(files.map(async (dirent) => {
                     try {
                         const fileName = dirent.name;
+                        const lower = fileName.toLowerCase();
+                        if (!(dirent.isDirectory() || lower.endsWith('.zip'))) return null;
                         const filePath = path.join(shaderDir, fileName);
-
-                        const isShader = dirent.isDirectory() ||
-                            fileName.toLowerCase().endsWith('.zip');
-
-                        if (!isShader) return null;
-
                         const stats = await fs.stat(filePath);
-                        let title = null, icon = null, version = null;
-
-                        const cacheKey = `${fileName}-${stats.size}`;
-                        if (modCache[cacheKey] && modCache[cacheKey].projectId) {
-                            title = modCache[cacheKey].title;
-                            icon = modCache[cacheKey].icon;
-                            version = modCache[cacheKey].version;
-                        } else if (dirent.isFile()) {
-                            try {
-                                const hash = await calculateSha1(filePath);
-                                if (modCache[hash]) {
-                                    console.log(`[Instances:Shaders] Found legacy SHA1 cache for ${fileName}`);
-                                    title = modCache[hash].title;
-                                    icon = modCache[hash].icon;
-                                    version = modCache[hash].version;
-                                    const projectId = modCache[hash].projectId;
-                                    const versionId = modCache[hash].versionId;
-
-                                    modCache[cacheKey] = { title, icon, version, projectId, versionId, hash };
-                                } else {
-                                    const res = await axios.get(`https://api.modrinth.com/v2/version_file/${hash}`, {
-                                        headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                        timeout: 3000
-                                    });
-                                    const versionData = res.data;
-                                    const versionId = versionData.id;
-                                    const projectId = versionData.project_id;
-
-                                    const projectRes = await axios.get(`https://api.modrinth.com/v2/project/${projectId}`, {
-                                        headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                        timeout: 3000
-                                    });
-                                    const projectData = projectRes.data;
-
-                                    title = projectData.title;
-                                    icon = projectData.icon_url;
-                                    version = versionData.version_number;
-
-                                    modCache[cacheKey] = { title, icon, version, projectId, versionId, hash };
-                                }
-                            } catch (e) { }
-                        }
-
-                        return {
-                            name: fileName,
-                            title: title || fileName,
-                            icon,
-                            version,
-                            projectId: modCache[cacheKey]?.projectId,
-                            versionId: modCache[cacheKey]?.versionId,
-                            size: stats.size,
-                            enabled: true
-                        };
+                        return { fileName, filePath, size: stats.size, isFile: dirent.isFile() };
                     } catch (e) {
                         console.error(`Error processing shader:`, e);
                         return null;
                     }
-                }))).filter(p => p !== null);
+                }))).filter(Boolean);
 
-                await fs.writeJson(modCachePath, modCache).catch(() => { });
+                const resolved = await resolveContentMetadata({
+                    items,
+                    modCachePath: path.join(appData, 'mod_cache.json'),
+                    hashFile: calculateSha1,
+                    cacheIcons: false
+                });
+
+                const shaderObjects = resolved.map(({ item, title, icon, version, projectId, versionId }) => ({
+                    name: item.fileName,
+                    title: title || item.fileName,
+                    icon,
+                    version,
+                    projectId,
+                    versionId,
+                    size: item.size,
+                    enabled: true
+                }));
 
                 return { success: true, shaders: shaderObjects };
             } catch (e) {
@@ -3903,6 +3803,7 @@ module.exports = (ipcMain, win) => {
                 const worldPath = path.join(instancesDir, instanceName, 'saves', folderName);
                 if (await fs.pathExists(worldPath)) {
                     await fs.remove(worldPath);
+                    notifyContentChanged(instanceName);
                     return { success: true };
                 }
                 return { success: false, error: 'World folder not found' };
@@ -3988,6 +3889,7 @@ module.exports = (ipcMain, win) => {
 
                 if (await fs.pathExists(resolvedPath)) {
                     await fs.remove(resolvedPath);
+                    notifyContentChanged(null);
                     return { success: true };
                 }
                 return { success: false, error: 'File not found' };
@@ -4699,110 +4601,38 @@ module.exports = (ipcMain, win) => {
 
                 const modsDir = path.join(resolvedBaseDir, 'mods');
                 await fs.ensureDir(modsDir);
-                const modCachePath = path.join(appData, 'mod_cache.json');
-                let modCache = {};
-                try {
-                    if (await fs.pathExists(modCachePath)) {
-                        modCache = await fs.readJson(modCachePath);
-                    }
-                } catch (e) {
-                    console.error('Failed to load mod cache', e);
-                }
-
-                const saveModCache = async () => {
-                    try {
-                        await fs.writeJson(modCachePath, modCache);
-                    } catch (e) { console.error('Failed to save mod cache', e); }
-                };
-
-                const cacheUpdates = {};
-
                 const files = await fs.readdir(modsDir);
                 const jars = files.filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled') || f.endsWith('.litemod'));
 
-                const modObjects = (await Promise.all(jars.map(async (fileName) => {
+                const items = (await Promise.all(jars.map(async (fileName) => {
                     try {
                         const filePath = path.join(modsDir, fileName);
                         const stats = await fs.stat(filePath);
-                        const isEnabled = !fileName.endsWith('.disabled');
-                        let title = null;
-                        let icon = null;
-                        let version = null;
-
-                        const cacheKey = `${fileName}-${stats.size}`;
-                        if (modCache[cacheKey] && modCache[cacheKey].projectId) {
-                            title = modCache[cacheKey].title;
-                            icon = modCache[cacheKey].icon;
-                            version = modCache[cacheKey].version;
-                        } else {
-
-                            try {
-                                const hash = await calculateSha1(filePath);
-                                if (modCache[hash]) {
-                                    console.log(`[Instances] Found legacy SHA1 cache for ${fileName}`);
-                                    title = modCache[hash].title;
-                                    icon = modCache[hash].icon;
-                                    version = modCache[hash].version;
-                                    const projectId = modCache[hash].projectId;
-                                    const versionId = modCache[hash].versionId;
-                                    const source = modCache[hash].source || 'modrinth';
-                                    const entry = { title, icon, version, projectId, versionId, hash, source };
-                                    modCache[cacheKey] = entry;
-                                    cacheUpdates[cacheKey] = entry;
-                                } else {
-                                    const res = await axios.get(`https://api.modrinth.com/v2/version_file/${hash}`, {
-                                        headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                        timeout: 3000
-                                    });
-                                    const versionData = res.data;
-
-                                    if (versionData && versionData.project_id) {
-
-                                        const projectRes = await axios.get(`https://api.modrinth.com/v2/project/${versionData.project_id}`, {
-                                            headers: { 'User-Agent': 'Client/Lux/1.0 (fernsehheft@pluginhub.de)' },
-                                            timeout: 3000
-                                        });
-                                        const projectData = projectRes.data;
-
-                                        title = projectData.title;
-                                        icon = await downloadAndCacheIcon(projectData.icon_url);
-                                        version = versionData.version_number;
-                                        const projectId = projectData.id;
-                                        const versionId = versionData.id;
-                                        const entry = { title, icon: icon || projectData.icon_url, version, hash, projectId, versionId, source: 'modrinth' };
-                                        modCache[cacheKey] = entry;
-                                        cacheUpdates[cacheKey] = entry;
-                                    }
-                                }
-                            } catch (apiErr) {
-
-                            }
-                        }
-
-                        return {
-                            name: fileName,
-                            path: filePath,
-                            size: stats.size,
-                            enabled: isEnabled,
-                            title: title || fileName,
-                            icon: icon,
-                            version: version,
-                            projectId: modCache[cacheKey]?.projectId,
-                            versionId: modCache[cacheKey]?.versionId,
-                            source: modCache[cacheKey]?.source || 'modrinth'
-                        };
+                        return { fileName, filePath, size: stats.size, isFile: true };
                     } catch (e) {
                         console.error(`Error processing mod ${fileName}:`, e);
                         return null;
                     }
-                }))).filter(m => m !== null);
-                if (Object.keys(cacheUpdates).length > 0) {
-                    try {
-                        const currentDisk = await fs.readJson(modCachePath).catch(() => ({}));
-                        const merged = { ...currentDisk, ...cacheUpdates };
-                        await fs.writeJson(modCachePath, merged);
-                    } catch (e) { console.error('Failed to save mod cache updates', e); }
-                }
+                }))).filter(Boolean);
+
+                const resolved = await resolveContentMetadata({
+                    items,
+                    modCachePath: path.join(appData, 'mod_cache.json'),
+                    hashFile: calculateSha1
+                });
+
+                const modObjects = resolved.map(({ item, title, icon, version, projectId, versionId, source }) => ({
+                    name: item.fileName,
+                    path: item.filePath,
+                    size: item.size,
+                    enabled: !item.fileName.endsWith('.disabled'),
+                    title: title || item.fileName,
+                    icon,
+                    version,
+                    projectId,
+                    versionId,
+                    source
+                }));
 
                 return { success: true, mods: modObjects };
             } catch (e) {
@@ -4824,6 +4654,7 @@ module.exports = (ipcMain, win) => {
                 }
 
                 await fs.rename(oldPath, path.join(modsDir, newName));
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 return { success: false, error: e.message };
@@ -4939,6 +4770,7 @@ module.exports = (ipcMain, win) => {
 
                 if (!await fs.pathExists(modPath)) {
                     console.warn(`[Instance:Delete] Path does not exist: ${modPath}`);
+                    notifyContentChanged(instanceName);
                     return { success: true };
                 }
 
@@ -4949,6 +4781,7 @@ module.exports = (ipcMain, win) => {
                 }
 
                 console.log(`[Instance:Delete] SUCCESS: Deleted ${modPath}`);
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 console.error(`[Instance:Delete] Error deleting ${modFileName}:`, e);
@@ -5243,6 +5076,7 @@ module.exports = (ipcMain, win) => {
                 await fs.copy(filePath, destPath);
 
                 console.log(`[Content:InstallLocal] Copied ${projectType}: ${fileName} to ${instanceName}`);
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 console.error(`[Content:InstallLocal] Error adding content to ${instanceName}:`, e);
@@ -5310,6 +5144,7 @@ module.exports = (ipcMain, win) => {
 
                 await fs.ensureDir(path.dirname(targetPath));
                 await fs.writeFile(targetPath, content, 'utf-8');
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 console.error(`[Instance:Files] Error writing file for ${instanceName}:`, e);
@@ -5325,6 +5160,7 @@ module.exports = (ipcMain, win) => {
                 }
 
                 await fs.remove(targetPath);
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 console.error(`[Instance:Files] Error deleting path for ${instanceName}:`, e);
@@ -5360,6 +5196,7 @@ module.exports = (ipcMain, win) => {
 
                 await fs.ensureDir(path.dirname(targetPath));
                 await fs.copy(sourcePath, targetPath);
+                notifyContentChanged(instanceName);
                 return { success: true };
             } catch (e) {
                 console.error(`[Instance:Files] Error uploading file for ${instanceName}:`, e);
@@ -5385,6 +5222,7 @@ module.exports = (ipcMain, win) => {
                 await downloadFile(data.url, newPath);
 
                 const modCachePath = path.join(appData, 'mod_cache.json');
+                notifyContentChanged(data.instanceName);
                 return { success: true };
             } catch (e) {
                 console.error('Update failed:', e);

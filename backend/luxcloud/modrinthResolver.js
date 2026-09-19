@@ -61,8 +61,6 @@ function toModCacheEntries(resolved, filesBySha1) {
 
         const fileName = file.relPath.split('/').pop();
         updates[`${fileName}-${file.size}`] = {
-            title: fileName,
-            icon: null,
             version: source.versionNumber,
             hash: sha1,
             projectId: source.projectId,

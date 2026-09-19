@@ -15,6 +15,7 @@ const events = new EventEmitter();
 const pending = new Map();
 const suspended = new Set();
 const attempts = new Map();
+const inFlight = new Set();
 
 let runner = null;
 let running = false;
@@ -62,6 +63,12 @@ function pendingInstances() {
 async function execute(instanceName, reason) {
     if (!runner) return { skipped: true, reason: 'no-runner' };
 
+    if (inFlight.has(instanceName)) {
+        schedule(instanceName, { reason, delayMs: AFTER_PLAY_DEBOUNCE_MS });
+        return { skipped: true, reason: 'already_running' };
+    }
+    inFlight.add(instanceName);
+
     events.emit('start', { instanceName, reason });
     console.log(`[LuxCloud] Auto-sync starting for "${instanceName}" (${reason}).`);
     try {
@@ -87,6 +94,8 @@ async function execute(instanceName, reason) {
             schedule(instanceName, { reason: `${reason}:retry`, delayMs: backoffFor(count) });
         }
         return { error: err };
+    } finally {
+        inFlight.delete(instanceName);
     }
 }
 
@@ -157,6 +166,7 @@ function reset() {
     pending.clear();
     suspended.clear();
     attempts.clear();
+    inFlight.clear();
     running = false;
     enabled = true;
     runner = null;

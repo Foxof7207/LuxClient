@@ -4,6 +4,7 @@ import { useNotification } from "../context/NotificationContext";
 import SliderControl from "../components/SliderControl";
 import ThemeCard from "../components/ThemeCard";
 import MiniPreview from "../components/MiniPreview";
+import BackgroundVideo from "../components/BackgroundVideo";
 import Dropdown from "../components/Dropdown";
 import ThemeExportModal from "../components/ThemeExportModal";
 import { syncCustomFonts } from "../services/fontManager";
@@ -1051,12 +1052,9 @@ function Styling() {
                         {theme.bgMedia?.url ? (
                           <>
                             {theme.bgMedia.type === "video" ? (
-                              <video
+                              <BackgroundVideo
                                 src={`app-media:///${theme.bgMedia.url.replace(/\\/g, "/")}`}
                                 className="absolute inset-0 w-full h-full object-cover opacity-40"
-                                autoPlay
-                                loop
-                                muted
                               />
                             ) : (
                               <img
