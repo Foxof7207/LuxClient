@@ -876,6 +876,33 @@ Tests: `tests/luxcloud.autoupload.test.js` (23 Prüfungen).
 
 ---
 
+## Bugfix-Runde vom 2026-09-19: Mod-Icons, Upload nach dem Stoppen, Video-Hintergrund
+
+Gemeldet: (1) alle Mod-Icons einer Instanz plötzlich weg, nur noch „Jar" bzw.
+„Shader Pack", erst nach einem Update oder einer neu installierten Mod wieder
+da; (2) nach dem Spielen bzw. nach dem Hinzufügen von Mods kein Upload in die
+Cloud; (3) ein MP4-Hintergrund bleibt grau, spielt nach dem Speichern kurz und
+wird dann wieder grau. GIF war nicht betroffen.
+
+| Fehlerbild | Ursache | Behoben in |
+|---|---|---|
+| Icons verschwinden auf einen Schlag | `mod_cache.json` hatte acht Schreiber, alle mit `fs.writeJson` (nicht atomar) und Read-Modify-Write ohne Sperre. Dashboard und Instanzansicht rufen `get-mods`, `get-resourcepacks` und `get-shaders` **gleichzeitig** auf. Las einer davon eine halb geschriebene Datei, fiel er auf `{}` zurück und schrieb anschließend diesen fast leeren Stand als ganze Datei zurück. Auf diesem PC waren danach nur noch 45 Einträge übrig. | `backend/utils/modCache.js` (neu): eine Warteschlange je Datei, atomares Schreiben, Zusammenführen je Eintrag, nie Rückschreiben eines nicht lesbaren Stands (der wird als `.corrupt` beiseitegelegt) |
+| Icons kommen von allein nie wieder | `get-mods` hielt jeden Eintrag mit `projectId` für vollständig. Der Cloud-Sync (`modrinthResolver.toModCacheEntries`) schrieb aber Einträge mit `title: <Dateiname>, icon: null`, und `adoptModSources` ersetzte beim Download ganze Einträge durch solche ohne Titel und Icon. Solche Einträge wurden nie nachgeladen. Ein Update bzw. eine neue Mod hatte einen neuen Schlüssel (`<Datei>-<Größe>`) und bekam deshalb wieder ein Icon. | `backend/utils/modMetadata.js` (neu): Einträge ohne Titel, mit Titel = Dateiname oder mit Icon, dessen lokale Datei fehlt, werden nachgeladen. Der Resolver schreibt keine Platzhalter mehr, und das Zusammenführen überschreibt vorhandene Werte nie mit `null` |
+| Bei Modrinth-Ausfall bzw. Rate-Limit bleibt alles leer | Zwei Einzelanfragen **je Datei**, alle parallel; ab ~150 Mods greift das Modrinth-Limit (300/min). | Sammelabfragen `POST /v2/version_files` und `GET /v2/projects?ids=`. Nach Timeout, 429 oder 5xx eine Minute Pause (`OFFLINE_COOLDOWN_MS`); danach heilt der nächste Aufruf die Liste von selbst |
+| Kein Upload nach dem Stoppen über den Launcher, Instanz danach für den Sync gesperrt | `launcher:kill` löschte `runningInstances` und rief `stopLaunchWorker` auf, und das macht `worker.removeAllListeners()`. `handleGameClosed` lief damit **gar nicht**: keine beendete Playtime-Session (daher die „abgebrochenen Sessions" im `startup.log`), kein `after-play`-Sync und vor allem kein `autoSync.resume()`. Die Instanz blieb bis zum Neustart pausiert, `collectSyncCandidates` überging sie, und auch später hinzugefügte Mods gingen nie hoch. | `backend/handlers/launcher.js`: `gameClosers` je Instanz; `launcher:kill` führt das reguläre Sitzungsende mit Signal `user-stop` aus (ohne Crash-Meldung). `releaseCloudHold()` läuft jetzt in jedem Sitzungsende, nicht nur, wenn eine Startzeit vorliegt |
+| Neue Mod erst nach bis zu ~75 s eingeplant | Nur der 45-s-Takt des `changeMonitor` bemerkte sie. | Die Handler, die den Inhalt einer Instanz ändern (Installation, Mod an/aus/löschen, Datei schreiben/löschen/hochladen, Welt löschen, Update), senden `lux:instance-content-changed`; `handlers/luxcloud.js` stößt daraufhin nach 3 s eine Kontrolle an |
+| Zwei Uploads derselben Instanz gleichzeitig | `autoSync.execute` hatte keine Sperre je Instanz; `after-play` und `local-change` konnten sich überlappen, und der zweite Upload baute auf derselben `parentRevision` auf. | `autoSync.js`: `inFlight`; ein zweiter Auslöser wird nach 8 s neu eingeplant |
+| MP4-Hintergrund grau | `app-media://` reichte alles über `net.fetch(file://…)` durch. Das beantwortet die Range-Anfragen, mit denen Chromium Videos stückweise lädt, nicht verlässlich: der Anfang spielt, der nächste Abschnitt scheitert. Der `onError` in `App.tsx` setzte daraufhin `bgMedia.type = 'none'`, und das `<img>` mit der MP4-Datei blieb grau. Ein GIF ist eine einzige Anfrage und war deshalb nicht betroffen. | `electron/main.js`: `serveRangedFile` beantwortet Video und Audio selbst mit 206 und `Content-Range`. `src/components/BackgroundVideo.tsx` (neu) lädt das Video bei einem Fehler bis zu fünfmal neu, statt den Hintergrund abzuschalten; verwendet in `App.tsx`, `Styling.tsx` und `MiniPreview.tsx` |
+
+Geprüft: `npm run test:luxcloud` (alle fünf Cloud-Suiten grün; `settingsSearch.test.js`
+scheitert unverändert an einem TS-Export, das war schon vorher so),
+`vite build`, Range-Antworten (voll, `a-b`, `a-`, `-n`, außerhalb → 416) sowie
+`resolveContentMetadata` gegen die echte Modrinth-API mit „PVP MISCHE"
+(34 Jars, 32 mit Icon; danach alle Icons gelöscht bei bleibender `projectId` →
+wieder 32; fünf gleichzeitige Schreibvorgänge → kein Eintrag verloren).
+
+---
+
 ## Nächster Schritt
 
 **Phase 12 — Produktions-Launch.** Alles Funktionale steht; hier geht es nur

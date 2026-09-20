@@ -20,11 +20,18 @@ async function writeJsonAtomic(filePath, data, { spaces = 4 } = {}) {
         }
     }
 
-    try {
-        await fs.rename(tmpPath, filePath);
-    } catch (error) {
-        await fs.remove(tmpPath).catch(() => {});
-        throw error;
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            await fs.rename(tmpPath, filePath);
+            return;
+        } catch (error) {
+            const busy = error && ['EPERM', 'EBUSY', 'EACCES'].includes(error.code);
+            if (!busy || attempt >= 4) {
+                await fs.remove(tmpPath).catch(() => {});
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
     }
 }
 

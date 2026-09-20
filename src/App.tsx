@@ -35,6 +35,7 @@ import LanguageSelectionModal from './components/LanguageSelectionModal';
 import ThemeModeSelectionModal from './components/ThemeModeSelectionModal';
 import StartupModeSelectionModal from './components/StartupDefaultModeModal';
 import LoadingOverlay from './components/LoadingOverlay';
+import BackgroundVideo from './components/BackgroundVideo';
 import WindowControls from './components/WindowControls';
 import AccountSwitcher from './components/AccountSwitcher';
 import CrashModal from './components/CrashModal';
@@ -1368,20 +1369,11 @@ function App() {
                     {theme?.bgMedia?.url && theme.bgMedia.url.trim() !== '' && (
                         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
                             {theme.bgMedia.type === 'video' ? (
-                                <video
-                                    key={theme.bgMedia.url}
-                                    autoPlay muted loop playsInline
-                                    preload="auto"
+                                <BackgroundVideo
+                                    src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`}
                                     className="absolute inset-0 w-full h-full object-cover"
                                     style={{ transform: 'translateZ(0)' }}
-                                    onCanPlay={(e) => (e.target as HTMLElement).classList.add('opacity-100')}
-                                    onError={(e) => {
-                                        console.error("Background video decoding error:", e);
-                                        setTheme(prev => ({ ...prev, bgMedia: { ...prev.bgMedia, type: 'none' } }));
-                                    }}
-                                >
-                                    <source src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`} type="video/mp4" />
-                                </video>
+                                />
                             ) : (
                                 <img
                                     key={theme.bgMedia.url}

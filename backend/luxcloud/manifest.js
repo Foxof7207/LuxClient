@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs-extra');
 
 const { HashCache } = require('./hashCache');
+const { readModCache, updateModCache } = require('../utils/modCache');
 const { chunkFile, chunkListBlob } = require('./chunker');
 const { chooseCompression } = require('./compression');
 const { validRelPath } = require('./pathRules');
@@ -125,23 +126,14 @@ async function saveModCacheUpdates(modCachePath, updates) {
     if (!modCachePath || !updates || Object.keys(updates).length === 0) return false;
 
     try {
-        const current = await loadModCache(modCachePath);
-        await fs.writeJson(modCachePath, { ...current, ...updates });
-        return true;
+        return await updateModCache(modCachePath, updates);
     } catch {
         return false;
     }
 }
 
 async function loadModCache(modCachePath) {
-    if (!modCachePath) return {};
-    try {
-        if (!await fs.pathExists(modCachePath)) return {};
-        const data = await fs.readJson(modCachePath);
-        return data && typeof data === 'object' ? data : {};
-    } catch {
-        return {};
-    }
+    return readModCache(modCachePath);
 }
 
 function lookupSource(modCache, file, sha1) {

@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { app } = require('electron');
 const { downloadAndCacheIcon } = require('../utils/icon-cache');
+const { updateModCache } = require('../utils/modCache');
 
 const MODRINTH_API = 'https://api.modrinth.com/v2';
 const CURSEFORGE_API = 'https://api.curse.tools/v1/cf';
@@ -1276,27 +1277,24 @@ const updateModCacheForInstall = async ({ destination, projectId, versionId, sou
         const stats = await fs.stat(destination);
         const cacheKey = `${path.basename(destination)}-${stats.size}`;
         const cachePath = path.join(appData, 'mod_cache.json');
-        let cache = {};
-
-        if (await fs.pathExists(cachePath)) {
-            cache = await fs.readJson(cachePath).catch(() => ({}));
-        }
-
         const cachedIcon = await downloadAndCacheIcon(icon);
-        cache[cacheKey] = {
-            title: title || path.basename(destination),
-            icon: cachedIcon || icon || null,
-            version: version || null,
-            projectId,
-            versionId,
-            source,
-            timestamp: Date.now()
-        };
 
-        await fs.writeJson(cachePath, cache);
+        await updateModCache(cachePath, {
+            [cacheKey]: {
+                title: title || path.basename(destination),
+                icon: cachedIcon || icon || null,
+                iconUrl: typeof icon === 'string' && icon.startsWith('http') ? icon : null,
+                version: version || null,
+                projectId,
+                versionId,
+                source,
+                timestamp: Date.now()
+            }
+        });
     } catch (e) {
         console.warn('[Install:Cache] Failed to update mod cache:', e.message);
     }
+    app.emit('lux:instance-content-changed', null);
 };
 
 const getFolderForProjectType = (projectType) => {

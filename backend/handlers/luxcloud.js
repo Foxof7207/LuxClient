@@ -400,6 +400,16 @@ module.exports = (ipcMain, mainWindow) => {
     });
     changeMonitor.start();
 
+    let contentChangeTimer = null;
+    app.on('lux:instance-content-changed', () => {
+        if (contentChangeTimer) clearTimeout(contentChangeTimer);
+        contentChangeTimer = setTimeout(() => {
+            contentChangeTimer = null;
+            changeMonitor.scan().catch(() => {});
+        }, 3000);
+        if (typeof contentChangeTimer.unref === 'function') contentChangeTimer.unref();
+    });
+
     for (const event of ['scheduled', 'start', 'done', 'error']) {
         autoSync.events.on(event, (payload) => {
             sendProgress('luxcloud:auto-sync', {

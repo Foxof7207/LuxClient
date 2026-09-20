@@ -1,4 +1,5 @@
 import React from 'react';
+import BackgroundVideo from './BackgroundVideo';
 
 function MiniPreview({ theme }) {
     return (
@@ -11,14 +12,11 @@ function MiniPreview({ theme }) {
                 {theme.bgMedia?.url && (
                     <div className="absolute inset-0 overflow-hidden">
                         {theme.bgMedia.type === 'video' ? (
-                            <video
-                                key={theme.bgMedia.url}
-                                autoPlay muted loop playsInline
+                            <BackgroundVideo
+                                src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`}
                                 className="w-full h-full object-cover"
                                 style={{ opacity: 1 - (theme.bgOverlay ?? 0.4) }}
-                            >
-                                <source src={`app-media:///${theme.bgMedia.url.replace(/\\/g, '/')}`} type="video/mp4" />
-                            </video>
+                            />
                         ) : (
                             <div
                                 className="absolute inset-0 bg-cover bg-center"

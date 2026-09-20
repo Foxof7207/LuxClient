@@ -1351,6 +1351,7 @@ module.exports = (ipcMain, mainWindow) => {
     const childProcesses = new Map();
     const activeLaunches = new Map();
     const launchWorkers = new Map();
+    const gameClosers = new Map();
     const launchLogBuffers = new Map();
     const launchLogFlushTimers = new Map();
     const javaDetectionCache = new Map();
@@ -1648,6 +1649,15 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
     ipcMain.handle('launcher:get-process-stats', async (_, pid) => {
         return await getProcessStats(pid);
     });
+    const finishStoppedGame = (instanceName) => {
+        const closer = gameClosers.get(instanceName);
+        if (!closer) return false;
+        closer(null, 'user-stop').catch((error) => {
+            console.error(`[Launcher] Failed to finish the stopped session for ${instanceName}:`, error);
+        });
+        return true;
+    };
+
     ipcMain.handle('launcher:kill', async (_, instanceName) => {
         const proc = childProcesses.get(instanceName);
         if (proc && proc.pid) {
@@ -1661,10 +1671,12 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                     process.kill(proc.pid, 'SIGTERM');
                 }
                 stopLaunchWorker(instanceName);
-                childProcesses.delete(instanceName);
-                runningInstances.delete(instanceName);
-                liveLogs.delete(instanceName);
-                mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
+                if (!finishStoppedGame(instanceName)) {
+                    childProcesses.delete(instanceName);
+                    runningInstances.delete(instanceName);
+                    liveLogs.delete(instanceName);
+                    mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
+                }
                 return { success: true };
             } catch (e) {
                 return { success: false, error: e.message };
@@ -1673,6 +1685,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
 
         if (launchWorkers.has(instanceName)) {
             stopLaunchWorker(instanceName);
+            if (finishStoppedGame(instanceName)) return { success: true };
             runningInstances.delete(instanceName);
             liveLogs.delete(instanceName);
             mainWindow.webContents.send('instance:status', { instanceName, status: 'stopped' });
@@ -2541,7 +2554,8 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                         const hasErrorExitCode = normalizedExitCode !== null && normalizedExitCode > 0;
                         const isShortSession = sessionTime < 15000;
                         const shouldFlagShortSessionCrash = process.platform !== 'linux' && isShortSession;
-                        const isCrash = hasErrorExitCode || logCrashDetected || shouldFlagShortSessionCrash;
+                        const stoppedByUser = signal === 'user-stop';
+                        const isCrash = !stoppedByUser && (hasErrorExitCode || logCrashDetected || shouldFlagShortSessionCrash);
 
                         if (isCrash) {
                             console.log(`[Launcher] Crash/Early Exit detected for ${instanceName} (Exit code: ${normalizedExitCode ?? 'unknown'}, Signal: ${signal || 'none'}, LogCrash: ${logCrashDetected}, Duration: ${sessionTime}ms, ShortSessionCrash: ${shouldFlagShortSessionCrash}).`);
@@ -2590,6 +2604,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                     runningInstances.delete(instanceName);
                 }
 
+                await releaseCloudHold();
                 childProcesses.delete(instanceName);
                 liveLogs.delete(instanceName);
                 clearLaunchLogBuffer(instanceName);
@@ -2616,13 +2631,16 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             const handleGameClosedOnce = async (code, signal) => {
                 if (closeHandled) return;
                 closeHandled = true;
+                if (gameClosers.get(instanceName) === handleGameClosedOnce) gameClosers.delete(instanceName);
                 await handleGameClosed(code, signal);
             };
+            gameClosers.set(instanceName, handleGameClosedOnce);
 
             try {
                 if (activeLaunches.get(instanceName)?.cancelled) {
                     console.log(`[Launcher] Launch aborted before spawn for ${instanceName}`);
                     await releaseCloudHold();
+                    gameClosers.delete(instanceName);
                     stopLaunchWorker(instanceName);
                     clearLaunchLogBuffer(instanceName);
                     activeLaunches.delete(instanceName);
@@ -2784,6 +2802,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
 
                 if (!launchResult?.success) {
                     await releaseCloudHold();
+                    gameClosers.delete(instanceName);
                     stopLaunchWorker(instanceName);
                     console.error('[Launcher] Launch failed in worker:', launchResult?.error || 'Unknown error');
                     clearLaunchLogBuffer(instanceName);
@@ -2796,6 +2815,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             } catch (e) {
                 console.error('Launch error:', e);
                 await releaseCloudHold();
+                gameClosers.delete(instanceName);
                 stopLaunchWorker(instanceName);
                 clearLaunchLogBuffer(instanceName);
                 runningInstances.delete(instanceName);

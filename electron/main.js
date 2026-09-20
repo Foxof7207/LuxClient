@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, protocol, net, Menu, Tray, nativeImage, scr
 const fs = require('fs-extra');
 const path = require('path');
 const crypto = require('crypto');
+const { Readable } = require('stream');
 const pkg = require('../package.json');
 const { describeSandbox } = require('../backend/utils/sandbox');
 
@@ -779,6 +780,66 @@ function createWindow() {
     });
 }
 
+const STREAMED_MEDIA_TYPES = {
+    '.mp4': 'video/mp4',
+    '.m4v': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mov': 'video/quicktime',
+    '.mkv': 'video/x-matroska',
+    '.ogv': 'video/ogg',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
+    '.wav': 'audio/wav'
+};
+
+async function serveRangedFile(filePath, contentType, request) {
+    const { size } = await fs.stat(filePath);
+    const headers = {
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache'
+    };
+
+    const rangeHeader = request.headers.get('range');
+    const match = rangeHeader && /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+
+    if (!match || (match[1] === '' && match[2] === '')) {
+        if (request.method === 'HEAD') {
+            return new Response(null, { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
+        }
+        const stream = Readable.toWeb(fs.createReadStream(filePath));
+        return new Response(stream, { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
+    }
+
+    let start;
+    let end;
+    if (match[1] === '') {
+        const suffix = Number(match[2]);
+        start = Math.max(0, size - suffix);
+        end = size - 1;
+    } else {
+        start = Number(match[1]);
+        end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
+    }
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
+        return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } });
+    }
+
+    const rangeHeaders = {
+        ...headers,
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${size}`
+    };
+
+    if (request.method === 'HEAD') {
+        return new Response(null, { status: 206, headers: rangeHeaders });
+    }
+
+    const stream = Readable.toWeb(fs.createReadStream(filePath, { start, end }));
+    return new Response(stream, { status: 206, headers: rangeHeaders });
+}
+
 function setupAppMediaProtocol() {
     protocol.handle('app-media', (request) => {
         try {
@@ -826,6 +887,14 @@ function setupAppMediaProtocol() {
             if (!isInside) {
                 console.error(`[Main] Blocked app-media attempt to access path outside userData: ${resolvedPath}`);
                 return new Response('Access Denied', { status: 403 });
+            }
+
+            const mediaType = STREAMED_MEDIA_TYPES[path.extname(resolvedPath).toLowerCase()];
+            if (mediaType) {
+                return serveRangedFile(resolvedPath, mediaType, request).catch((error) => {
+                    console.error('Protocol error:', error);
+                    return new Response(null, { status: 404 });
+                });
             }
 
             return net.fetch(pathToFileURL(resolvedPath).toString());
