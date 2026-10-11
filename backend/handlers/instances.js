@@ -1,4 +1,5 @@
 const fs = require('fs-extra');
+const sharedImportState = require('../utils/sharedImportState');
 const { Client } = require('minecraft-launcher-core');
 const Store = require('electron-store');
 const store = new Store();
@@ -1261,10 +1262,19 @@ function setCachedMergedInstances(instances) {
     mergedInstancesCacheAt = Date.now();
 }
 
+// Bumped on every invalidation so a scan started before a change never repopulates the cache.
+let mergedInstancesGeneration = 0;
+
 function invalidateMergedInstancesCache() {
+    mergedInstancesGeneration += 1;
     mergedInstancesCacheAt = 0;
     mergedInstancesCache = [];
+    mergedInstancesRefreshPromise = null;
 }
+
+// Andere Module (etwa der Cloud-Download einer Instanz) legen Instanzordner an, ohne
+// hier vorbeizukommen. Sie melden das ueber dieses Ereignis.
+app.on('lux:instances-changed', () => invalidateMergedInstancesCache());
 
 async function refreshMergedInstancesCache(force = false) {
     const isFresh = (Date.now() - mergedInstancesCacheAt) < MERGED_INSTANCES_CACHE_TTL_MS;
@@ -1276,16 +1286,24 @@ async function refreshMergedInstancesCache(force = false) {
         return mergedInstancesRefreshPromise;
     }
 
-    mergedInstancesRefreshPromise = (async () => {
+    const generation = mergedInstancesGeneration;
+    const refreshPromise = (async () => {
         const merged = await getMergedInstances();
+        if (generation !== mergedInstancesGeneration) {
+            // Invalidated while scanning: the result may be stale, so scan again.
+            return refreshMergedInstancesCache(true);
+        }
         setCachedMergedInstances(merged);
         return getCachedMergedInstances();
     })();
+    mergedInstancesRefreshPromise = refreshPromise;
 
     try {
-        return await mergedInstancesRefreshPromise;
+        return await refreshPromise;
     } finally {
-        mergedInstancesRefreshPromise = null;
+        if (mergedInstancesRefreshPromise === refreshPromise) {
+            mergedInstancesRefreshPromise = null;
+        }
     }
 }
 
@@ -2506,13 +2524,25 @@ module.exports = (ipcMain, win) => {
 
                     sendCompletion = async (success, error = null) => {
                         if (task.aborted) return;
+                        // Laeuft noch ein Code-Import (Mods, Packs, Shader), meldet erst der
+                        // die Instanz als fertig -- sonst liesse sie sich mittendrin starten.
+                        const sharedImportPending = success && (
+                            sharedImportState.isActive(finalName) || Boolean(await sharedImportState.readMarker(dir))
+                        );
                         try {
                             const configPath = path.join(dir, 'instance.json');
                             const updatedConfig = await fs.readJson(configPath);
-                            updatedConfig.status = success ? 'ready' : 'error';
+                            updatedConfig.status = sharedImportPending ? 'installing' : (success ? 'ready' : 'error');
                             await fs.writeJson(configPath, updatedConfig, { spaces: 4 });
                             invalidateMergedInstancesCache();
                         } catch (e) { console.error('Failed to update instance config:', e); }
+
+                        if (sharedImportPending) {
+                            if (win && win.webContents) {
+                                win.webContents.send('instance:status', { instanceName: finalName, status: 'installing' });
+                            }
+                            return;
+                        }
 
                         if (win && win.webContents) {
                             sendProgress(100, success ? 'Completed' : 'Failed');
@@ -3153,6 +3183,7 @@ module.exports = (ipcMain, win) => {
                 });
 
                 await fs.writeJson(path.join(targetDir, 'instance.json'), instanceConfig, { spaces: 4 });
+                invalidateMergedInstancesCache();
                 await (async () => {
                     try {
                         const sendProgress = (progress, status) => {
@@ -3314,6 +3345,7 @@ module.exports = (ipcMain, win) => {
                 });
 
                 await fs.writeJson(path.join(targetDir, 'instance.json'), instanceConfig, { spaces: 4 });
+                invalidateMergedInstancesCache();
 
                 await (async () => {
                     try {
@@ -3464,6 +3496,7 @@ module.exports = (ipcMain, win) => {
                     instanceConfig.imported = Date.now();
                     instanceConfig.status = 'installing';
                     await fs.writeJson(path.join(targetDir, 'instance.json'), instanceConfig, { spaces: 4 });
+                    invalidateMergedInstancesCache();
                     if (win && win.webContents) {
                         win.webContents.send('instance:status', { instanceName, status: 'installing' });
                     }
@@ -4058,6 +4091,7 @@ module.exports = (ipcMain, win) => {
                 }
 
                 await fs.writeJson(path.join(dir, 'instance.json'), config, { spaces: 4 });
+                invalidateMergedInstancesCache();
                 await fs.writeFile(path.join(dir, 'playtime.txt'), '0');
                 await writeInstanceActionLog('create-instance', {
                     instanceName: finalName,
@@ -4340,7 +4374,7 @@ module.exports = (ipcMain, win) => {
             }
         });
 
-        ipcMain.handle('instance:rename', async (_, oldName, newName) => {
+        const renameInstanceFolder = async (oldName, newName) => {
             try {
                 console.log(`Renaming instance: "${oldName}" -> "${newName}"`);
                 console.log(`Instances dir: ${instancesDir}`);
@@ -4401,6 +4435,31 @@ module.exports = (ipcMain, win) => {
                 }
                 return { success: false, error: e.message };
             }
+        };
+
+        ipcMain.handle('instance:rename', async (_, oldName, newName) => {
+            const result = await renameInstanceFolder(oldName, newName);
+            if (result && result.success && String(oldName || '') !== String(newName || '').trim()) {
+                // Lux Cloud gibt einen neuen Namen einer gemeinsamen Instanz an alle weiter.
+                app.emit('lux:instance-renamed', {
+                    oldName,
+                    newName: String(newName || '').trim(),
+                    instanceDir: path.join(instancesDir, String(newName || '').trim())
+                });
+            }
+            return result;
+        });
+
+        // Umbenennen auf Wunsch von Lux Cloud (ein Mitspieler hat den Namen geaendert).
+        app.on('lux:rename-instance-request', ({ oldName, newName, done }) => {
+            renameInstanceFolder(oldName, newName)
+                .then((result) => {
+                    if (result && result.success && win && win.webContents && !win.webContents.isDestroyed()) {
+                        win.webContents.send('instance:status', { instanceName: oldName, status: 'renamed', newName });
+                    }
+                    if (typeof done === 'function') done(result);
+                })
+                .catch((err) => { if (typeof done === 'function') done({ success: false, error: err.message }); });
         });
 
         ipcMain.handle('instance:duplicate', async (_, instanceName) => {
@@ -4575,8 +4634,8 @@ module.exports = (ipcMain, win) => {
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
-                win.webContents.send('instance:status', { instanceName: name, status: 'deleted' });
                 invalidateMergedInstancesCache();
+                win.webContents.send('instance:status', { instanceName: name, status: 'deleted' });
 
                 return { success: true };
             } catch (e) {

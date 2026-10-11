@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNotification } from "../context/NotificationContext";
 import SliderControl from "../components/SliderControl";
@@ -9,7 +9,6 @@ import Dropdown from "../components/Dropdown";
 import ThemeExportModal from "../components/ThemeExportModal";
 import { syncCustomFonts } from "../services/fontManager";
 import { updateShadcnVars } from "../lib/utils";
-import ThemeMarketplace from "./ThemeMarketplace";
 import PageHeader from "../components/layout/PageHeader";
 import PageContent from "../components/layout/PageContent";
 import { Button } from "../components/ui/button";
@@ -32,7 +31,10 @@ import {
   RotateCcw,
   Save,
   Type,
+  Cloud,
 } from "lucide-react";
+
+const ThemeMarketplace = React.lazy(() => import("./ThemeMarketplace"));
 
 const PRESETS = [
   {
@@ -295,6 +297,8 @@ function Styling() {
   });
 
   const [activeView, setActiveView] = useState("editor");
+  const [accountBgSync, setAccountBgSync] = useState(false);
+  const savedBgUrlRef = useRef("");
   const [customPresets, setCustomPresets] = useState([]);
   const [showExportModal, setShowExportModal] = useState(false);
   const availablePresets = PRESETS.filter((preset) =>
@@ -316,6 +320,23 @@ function Styling() {
       style: { fontFamily: font.value },
     })),
   ];
+
+  useEffect(() => {
+    const removeSettingsListener = window.electronAPI.onSettingsUpdated?.(
+      (next) => {
+        setAccountBgSync(Boolean(next?.accountBackgroundSync));
+        const incoming = next?.theme?.bgMedia;
+        if (!incoming) return;
+        setTheme((prev) => {
+          if ((prev.bgMedia?.url || "") !== savedBgUrlRef.current) return prev;
+          savedBgUrlRef.current = incoming.url || "";
+          if ((prev.bgMedia?.url || "") === (incoming.url || "")) return prev;
+          return { ...prev, bgMedia: incoming };
+        });
+      },
+    );
+    return () => removeSettingsListener?.();
+  }, []);
 
   useEffect(() => {
     loadTheme();
@@ -513,7 +534,9 @@ function Styling() {
         });
         setTheme(loadedTheme);
         applyTheme(loadedTheme);
+        savedBgUrlRef.current = loadedTheme.bgMedia?.url || "";
       }
+      setAccountBgSync(Boolean(res.settings.accountBackgroundSync));
     }
   };
 
@@ -738,6 +761,10 @@ function Styling() {
   };
 
   const handleSave = async () => {
+    const bgRes = await window.electronAPI.setBackgroundMedia(theme.bgMedia);
+    if (bgRes?.success) {
+      savedBgUrlRef.current = theme.bgMedia?.url || "";
+    }
     const res = await window.electronAPI.getSettings();
     if (res.success) {
       const newSettings = { ...res.settings, theme };
@@ -776,7 +803,15 @@ function Styling() {
 
       <PageContent>
         {activeView === "marketplace" ? (
-          <ThemeMarketplace />
+          <React.Suspense
+            fallback={
+              <div className="flex items-center justify-center py-16">
+                <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+              </div>
+            }
+          >
+            <ThemeMarketplace />
+          </React.Suspense>
         ) : (
           <>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1079,6 +1114,16 @@ function Styling() {
                           </>
                         )}
                       </div>
+
+                      {accountBgSync && (
+                        <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <Cloud className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          {t(
+                            "styling.account_bg_synced",
+                            "Synced with your Lux account. Saving changes it on every device you are signed in on.",
+                          )}
+                        </p>
+                      )}
 
                       {theme.bgMedia?.url && (
                         <div className="space-y-4">

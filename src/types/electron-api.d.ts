@@ -24,6 +24,9 @@ interface ElectronAPI {
   removeAccount: (uuid: string) => Promise<any>;
   selectBackgroundMedia: () => Promise<any>;
   deleteBackgroundMedia: (path: string) => Promise<any>;
+  setBackgroundMedia: (media: { url: string; type: string } | null) => Promise<any>;
+  setAccountBackgroundSync: (enabled: boolean) => Promise<any>;
+  syncAccountBackground: () => Promise<any>;
   selectCustomFont: () => Promise<any>;
   deleteCustomFont: (fontId: string) => Promise<any>;
   getCustomPresets: () => Promise<any>;
@@ -59,6 +62,25 @@ interface ElectronAPI {
   getLog: (instanceName: string, filename: string) => Promise<any>;
   uploadInstanceLog: (instanceName: string, filename: string) => Promise<any>;
   launchGame: (instanceName: string, quickPlay?: any) => Promise<any>;
+  getSavedServers: (instanceName: string) => Promise<{
+    success: boolean;
+    error?: string;
+    servers: { name: string; address: string; icon: string | null }[];
+  }>;
+  pingMinecraftServer: (address: string, options?: { force?: boolean }) => Promise<{
+    success: boolean;
+    error?: string;
+    status?: {
+      online: boolean;
+      error?: string;
+      latency?: number;
+      version?: string | null;
+      protocol?: number | null;
+      players?: { online: number; max: number; sample: string[] };
+      motd?: unknown;
+      favicon?: string | null;
+    };
+  }>;
   getLiveLogs: (instanceName: string) => Promise<any>;
   killGame: (instanceName: string) => Promise<any>;
   abortLaunch: (instanceName: string) => Promise<any>;
@@ -111,6 +133,9 @@ interface ElectronAPI {
   importModpackFromCode: (code: string) => Promise<any>;
   getModpackCodes: () => Promise<any>;
   deleteModpackCode: (code: string) => Promise<any>;
+  getModpackAdminStatus: () => Promise<{ success: boolean; isAdmin: boolean }>;
+  updateLiveModpackCode: (code: string, data: any) => Promise<any>;
+  setModpackCodeSettings: (code: string, settings: { live?: boolean; expiry?: number | 'never' }) => Promise<any>;
   installSharedContent: (instanceName: string, modpackData: any) => Promise<any>;
   getCurrentSkin: (token: string) => Promise<any>;
   uploadSkin: (token: string, skinPath: string, variant: string) => Promise<any>;
@@ -133,10 +158,14 @@ interface ElectronAPI {
   onLaunchProgress: (callback: IpcCallback) => UnsubscribeFn;
   onLaunchLog: (callback: IpcCallback) => UnsubscribeFn;
   onInstanceStatus: (callback: IpcCallback) => UnsubscribeFn;
+  getModpackImportStates?: () => Promise<Array<{ instanceName: string; pending: boolean; total: number; installed: number; failed: number }>>;
+  onModpackImportState?: (callback: (payload: { instanceName: string; pending: boolean; total: number; installed: number; failed: number }) => void) => UnsubscribeFn;
+  onOpenModpackCode?: (callback: (payload: { code: string }) => void) => UnsubscribeFn;
   onInstallProgress: (callback: IpcCallback) => UnsubscribeFn;
   onLoginSuccess: (callback: IpcCallback) => UnsubscribeFn;
   onThemeUpdated: (callback: IpcCallback) => UnsubscribeFn;
   onSettingsUpdated: (callback: IpcCallback) => UnsubscribeFn;
+  onAccountBackgroundStatus: (callback: (status: { state: string; action?: string; error?: string; message?: string }) => void) => UnsubscribeFn;
   onJavaProgress: (callback: IpcCallback) => UnsubscribeFn;
   onJavaRequired: (callback: IpcCallback) => UnsubscribeFn;
   onWindowStateChange: (callback: IpcCallback) => UnsubscribeFn;
@@ -259,6 +288,15 @@ interface ElectronAPI {
   luxCloudSyncInstance: (instanceName: string, options?: any) => Promise<any>;
   luxCloudRestoreCloudInstance: (instanceUuid: string) => Promise<any>;
   luxCloudRestoreInstance: (instanceUuid: string, options?: any) => Promise<any>;
+  luxCloudListShared: () => Promise<any>;
+  luxCloudListMembers: (instanceName: string) => Promise<any>;
+  luxCloudAddMember: (instanceName: string, email: string) => Promise<any>;
+  luxCloudRemoveMember: (instanceName: string, userId: number) => Promise<any>;
+  luxCloudLeaveShared: (instanceName: string) => Promise<any>;
+  luxCloudJoinShared: (instanceUuid: string, options?: { instanceName?: string; owner?: any }) => Promise<any>;
+  luxCloudGetAuthors: (instanceName: string) => Promise<any>;
+  luxCloudUpdateMemberPermissions: (instanceName: string, userId: number, permissions: Record<string, boolean>) => Promise<any>;
+  luxCloudApplyCloudNames: (entries: { instanceUuid: string; name: string }[]) => Promise<any>;
   luxCloudListRevisions: (instanceUuid: string) => Promise<any>;
   luxCloudBlobCacheStats: () => Promise<any>;
   luxCloudPruneBlobCache: (maxBytes?: number) => Promise<any>;

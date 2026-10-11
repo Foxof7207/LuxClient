@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ExtensionProvider } from './context/ExtensionContext';
 import { Analytics } from './services/Analytics';
 import ExtensionSlot from './components/Extensions/ExtensionSlot';
@@ -23,6 +23,13 @@ const Login = React.lazy(() => import('./pages/Login'));
 const News = React.lazy(() => import('./pages/News'));
 const Status = React.lazy(() => import('./pages/Status'));
 const Maintenance = React.lazy(() => import('./pages/Maintenance'));
+// First-run and guide dialogs are rarely shown, so they stay out of the startup bundle.
+const AgreementModal = React.lazy(() => import('./components/AgreementModal'));
+const LanguageSelectionModal = React.lazy(() => import('./components/LanguageSelectionModal'));
+const ThemeModeSelectionModal = React.lazy(() => import('./components/ThemeModeSelectionModal'));
+const StartupModeSelectionModal = React.lazy(() => import('./components/StartupDefaultModeModal'));
+const GuidePromptModal = React.lazy(() => import('./components/GuidePromptModal'));
+const GuideOverlay = React.lazy(() => import('./components/GuideOverlay'));
 import { isFeatureEnabled } from './config/featureFlags';
 
 import AppSidebar from './components/AppSidebar';
@@ -30,18 +37,12 @@ import TopBar from './components/TopBar';
 import CloudOverlays from './components/cloud/CloudOverlays';
 import CommandPalette from './components/CommandPalette';
 import UpdateNotification from './components/UpdateNotification';
-import AgreementModal from './components/AgreementModal';
-import LanguageSelectionModal from './components/LanguageSelectionModal';
-import ThemeModeSelectionModal from './components/ThemeModeSelectionModal';
-import StartupModeSelectionModal from './components/StartupDefaultModeModal';
 import LoadingOverlay from './components/LoadingOverlay';
 import BackgroundVideo from './components/BackgroundVideo';
 import WindowControls from './components/WindowControls';
 import AccountSwitcher from './components/AccountSwitcher';
 import CrashModal from './components/CrashModal';
 import JavaRequiredModal from './components/JavaRequiredModal';
-import GuidePromptModal from './components/GuidePromptModal';
-import GuideOverlay from './components/GuideOverlay';
 import { resolveModeView, resolveStartupDestination } from './lib/startupPages';
 import { syncCustomFonts } from './services/fontManager';
 import { updateShadcnVars } from './lib/utils';
@@ -297,10 +298,23 @@ function App() {
     const [selectedInstance, setSelectedInstance] = useState(null);
     const [selectedServer, setSelectedServer] = useState(null);
     const [runningInstances, setRunningInstances] = useState({});
+    // Code imports that are still downloading mods/packs/shaders. The backend reports these
+    // on their own channel so a late "stopped" from the game installer can't unlock Play.
+    const [pendingSharedImports, setPendingSharedImports] = useState<Record<string, boolean>>({});
+    const effectiveRunningInstances = useMemo(() => {
+        const names = Object.keys(pendingSharedImports);
+        if (names.length === 0) return runningInstances;
+        const next = { ...runningInstances };
+        for (const name of names) {
+            if (next[name] !== 'running' && next[name] !== 'launching') next[name] = 'installing';
+        }
+        return next;
+    }, [runningInstances, pendingSharedImports]);
     const [activeDownloads, setActiveDownloads] = useState({});
     const [isMaximized, setIsMaximized] = useState(false);
     const [searchCategory, setSearchCategory] = useState(null);
     const [triggerCreateInstance, setTriggerCreateInstance] = useState(false);
+    const [pendingModpackCode, setPendingModpackCode] = useState<string | null>(null);
     const [appSettings, setAppSettings] = useState<any>({});
     const startupPageOptions = React.useMemo(() => ({
         openClientEnabled: isFeatureEnabled('openClientPage')
@@ -366,14 +380,43 @@ function App() {
     }, []);
 
     useEffect(() => {
-        const warmupTimer = window.setTimeout(() => {
-            import('./pages/Settings').catch(() => {
-                // Ignore prefetch failures; lazy loading still handles normal navigation.
-            });
-        }, 1200);
+        // Pages are split into their own chunks. Once the app is idle, warm up the ones
+        // people open most so navigating to them doesn't show a spinner.
+        const prefetchers = [
+            () => import('./pages/Settings'),
+            () => import('./pages/InstanceDetails'),
+            () => import('./pages/Search'),
+            () => import('./pages/Dashboard'),
+            () => import('./pages/Home')
+        ];
+        let cancelled = false;
+        let idleHandle: number | null = null;
+
+        const runNext = () => {
+            const next = prefetchers.shift();
+            if (cancelled || !next) return;
+            next()
+                .catch(() => {
+                    // Ignore prefetch failures; lazy loading still handles normal navigation.
+                })
+                .finally(schedule);
+        };
+        const schedule = () => {
+            if (cancelled) return;
+            idleHandle = typeof window.requestIdleCallback === 'function'
+                ? window.requestIdleCallback(runNext, { timeout: 3000 })
+                : window.setTimeout(runNext, 200);
+        };
+
+        const warmupTimer = window.setTimeout(schedule, 1200);
 
         return () => {
+            cancelled = true;
             window.clearTimeout(warmupTimer);
+            if (idleHandle !== null) {
+                if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleHandle);
+                else window.clearTimeout(idleHandle);
+            }
         };
     }, []);
 
@@ -615,7 +658,7 @@ function App() {
         const removeStatusListener = window.electronAPI?.onInstanceStatus(({ instanceName, status, loader, version }) => {
             setRunningInstances(prev => {
                 const next = { ...prev };
-                if (status === 'stopped' || status === 'deleted') {
+                if (status === 'stopped' || status === 'deleted' || status === 'renamed') {
                     delete next[instanceName];
                     if (status === 'stopped') Analytics.updateStatus(false, instanceName, { loader, version, mode: currentMode });
                 } else {
@@ -687,6 +730,36 @@ function App() {
             setJavaRequirement(data || null);
         });
 
+        // luxclient://modpack?code=... from the code preview page on the website: open the
+        // library with the import dialog prefilled. Nothing is installed until the user confirms.
+        const applyImportState = (state) => {
+            if (!state?.instanceName) return;
+            setPendingSharedImports(prev => {
+                if (state.pending) {
+                    if (prev[state.instanceName]) return prev;
+                    return { ...prev, [state.instanceName]: true };
+                }
+                if (!prev[state.instanceName]) return prev;
+                const next = { ...prev };
+                delete next[state.instanceName];
+                return next;
+            });
+        };
+        const removeImportStateListener = window.electronAPI?.onModpackImportState?.(applyImportState);
+        window.electronAPI?.getModpackImportStates?.()
+            .then((states) => (states || []).forEach(applyImportState))
+            .catch(() => { });
+
+        const removeOpenModpackCodeListener = window.electronAPI?.onOpenModpackCode?.((payload) => {
+            const code = String(payload?.code || '').trim();
+            if (!/^[A-Za-z0-9]{8}$/.test(code)) return;
+            startTransition(() => {
+                setCurrentMode('launcher');
+                setCurrentView('library');
+            });
+            setPendingModpackCode(code);
+        });
+
         const removeInstallFromMarketplaceListener = window.electronAPI?.onInstallFromMarketplace?.(async (payload) => {
             if (!payload?.url) return;
             console.log('[App] Install from marketplace deep link:', payload);
@@ -750,6 +823,8 @@ function App() {
             if (removeCrashReportListener) removeCrashReportListener();
             if (removeJavaRequiredListener) removeJavaRequiredListener();
             if (removeInstallFromMarketplaceListener) removeInstallFromMarketplaceListener();
+            if (removeOpenModpackCodeListener) removeOpenModpackCodeListener();
+            if (removeImportStateListener) removeImportStateListener();
         };
     }, [startupPageOptions]);
 
@@ -922,6 +997,13 @@ function App() {
     };
 
     const handleLoginSuccess = async (profile) => {
+        // login() liefert nur Name + UUID; ohne Token kann der Skin-Kopf nicht geladen werden.
+        if (profile && !profile.access_token && window.electronAPI?.getProfile) {
+            try {
+                const fullProfile = await window.electronAPI.getProfile();
+                if (fullProfile && fullProfile.uuid === profile.uuid) profile = fullProfile;
+            } catch (e) { }
+        }
         if (profile && profile.access_token && window.electronAPI.getCurrentSkin) {
             try {
                 let skinRes = await window.electronAPI.getCurrentSkin(profile.access_token);
@@ -1212,11 +1294,11 @@ function App() {
     const renderCurrentPage = () => {
         if (currentMode === 'launcher') {
             if (currentView === 'dashboard') {
-                return <Home onInstanceClick={handleInstanceClick} runningInstances={runningInstances} isGuest={isGuest} userProfile={userProfile} activeDownloads={activeDownloads} onNavigateSearch={(category) => { setSearchCategory(category); setCurrentView('search'); }} />;
+                return <Home onInstanceClick={handleInstanceClick} runningInstances={effectiveRunningInstances} isGuest={isGuest} userProfile={userProfile} activeDownloads={activeDownloads} onNavigateSearch={(category) => { setSearchCategory(category); setCurrentView('search'); }} />;
             }
 
             if (currentView === 'library') {
-                return <Dashboard onInstanceClick={handleInstanceClick} runningInstances={runningInstances} activeDownloads={activeDownloads} triggerCreate={triggerCreateInstance} onCreateHandled={() => setTriggerCreateInstance(false)} isGuest={isGuest} />;
+                return <Dashboard onInstanceClick={handleInstanceClick} runningInstances={effectiveRunningInstances} activeDownloads={activeDownloads} triggerCreate={triggerCreateInstance} onCreateHandled={() => setTriggerCreateInstance(false)} pendingImportCode={pendingModpackCode} onImportCodeHandled={() => setPendingModpackCode(null)} isGuest={isGuest} />;
             }
 
             if (currentView === 'search') {
@@ -1236,7 +1318,7 @@ function App() {
             }
 
             if (currentView === 'instance-details' && selectedInstance) {
-                return <InstanceDetails instance={selectedInstance} onBack={handleBackToDashboard} runningInstances={runningInstances} onInstanceUpdate={handleInstanceUpdate} isGuest={isGuest} />;
+                return <InstanceDetails instance={selectedInstance} onBack={handleBackToDashboard} runningInstances={effectiveRunningInstances} onInstanceUpdate={handleInstanceUpdate} isGuest={isGuest} />;
             }
 
             if (currentView === 'extensions') {
@@ -1399,7 +1481,7 @@ function App() {
                         isMaximized={isMaximized}
                         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
                         onNavigate={handleNavigate}
-                        runningInstances={runningInstances}
+                        runningInstances={effectiveRunningInstances}
                         activeDownloads={activeDownloads}
                         appSettings={appSettings}
                         isCommandPaletteAvailable={isCommandPaletteAvailable}
@@ -1505,46 +1587,58 @@ function App() {
             {isInitialLoading && <LoadingOverlay message="Starting..." />}
 
             {!isInitialLoading && appSettings.hasSelectedLanguage === false && (
-                <LanguageSelectionModal onSelect={handleLanguageSelect} />
+                <React.Suspense fallback={null}>
+                    <LanguageSelectionModal onSelect={handleLanguageSelect} />
+                </React.Suspense>
             )}
 
             {!isInitialLoading && appSettings.hasSelectedLanguage === true && appSettings.hasAcceptedToS === false && (
-                <AgreementModal
-                    onAccept={handleAcceptAgreement}
-                    onDecline={handleDeclineAgreement}
-                />
+                <React.Suspense fallback={null}>
+                    <AgreementModal
+                        onAccept={handleAcceptAgreement}
+                        onDecline={handleDeclineAgreement}
+                    />
+                </React.Suspense>
             )}
 
             {isThemeModeSelectionOpen && (
-                <ThemeModeSelectionModal onSelect={handleThemeModeSelect} />
+                <React.Suspense fallback={null}>
+                    <ThemeModeSelectionModal onSelect={handleThemeModeSelect} />
+                </React.Suspense>
             )}
 
             {isStartupModeSelectionOpen && (
-                <StartupModeSelectionModal
-                    onSelect={handleStartupModeSelect}
-                    canAccessSkins={canAccessSkins}
-                />
+                <React.Suspense fallback={null}>
+                    <StartupModeSelectionModal
+                        onSelect={handleStartupModeSelect}
+                        canAccessSkins={canAccessSkins}
+                    />
+                </React.Suspense>
             )}
 
             {guidePromptMode && (
-                <GuidePromptModal
-                    mode={guidePromptMode}
-                    doNotShowAgain={guidePromptDoNotShowAgain}
-                    onDoNotShowAgainChange={setGuidePromptDoNotShowAgain}
-                    onStart={handleGuidePromptStart}
-                    onSkip={handleGuidePromptSkip}
-                />
+                <React.Suspense fallback={null}>
+                    <GuidePromptModal
+                        mode={guidePromptMode}
+                        doNotShowAgain={guidePromptDoNotShowAgain}
+                        onDoNotShowAgainChange={setGuidePromptDoNotShowAgain}
+                        onStart={handleGuidePromptStart}
+                        onSkip={handleGuidePromptSkip}
+                    />
+                </React.Suspense>
             )}
 
             {isGuideRunning && guideSteps.length > 0 && (
-                <GuideOverlay
-                    steps={guideSteps}
-                    stepIndex={guideStepIndex}
-                    onPrevious={handleGuidePrevious}
-                    onNext={handleGuideNext}
-                    onFinish={handleGuideFinish}
-                    onSkip={handleGuideFinish}
-                />
+                <React.Suspense fallback={null}>
+                    <GuideOverlay
+                        steps={guideSteps}
+                        stepIndex={guideStepIndex}
+                        onPrevious={handleGuidePrevious}
+                        onNext={handleGuideNext}
+                        onFinish={handleGuideFinish}
+                        onSkip={handleGuideFinish}
+                    />
+                </React.Suspense>
             )}
 
             <CloudOverlays />

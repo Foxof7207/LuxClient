@@ -5,6 +5,8 @@ const { fork } = require('child_process');
 const Store = require('electron-store');
 const store = new Store();
 const { getUserProfile } = require('../utils/secureProfileStore');
+const { ensureValidSession, LAUNCH_REFRESH_MARGIN_MS } = require('../utils/minecraftSession');
+const { redactSecrets } = require('../utils/redactSecrets');
 const backupManager = require('../backupManager');
 const { getProcessStats } = require('../utils/process-utils');
 const { resolvePrimaryInstancesDir, resolveInstanceDirByName } = require('../utils/instances-path');
@@ -15,6 +17,7 @@ const cloudPlaytime = require('../luxcloud/playtime');
 const preLaunch = require('../luxcloud/preLaunch');
 const { withSyncScope } = require('../luxcloud/syncScope');
 const { readInstanceState } = require('../luxcloud/syncState');
+const sharedImportState = require('../utils/sharedImportState');
 
 function normalizeExternalRequestName(value) {
     return String(value || '').trim().toLowerCase();
@@ -1851,6 +1854,21 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             }
         }
 
+        // Aus einem Live-Code installiert? Dann zuerst die neueste Revision des Codes holen.
+        await sharedImportState.runLiveUpdate(instanceName);
+
+        // Ein Code-Import laedt nach dem Spiel noch Mods & Co. nach -- vorher starten
+        // wuerde die Instanz mit halb heruntergeladenen Dateien hochfahren.
+        try {
+            const importBlock = await sharedImportState.getLaunchBlock(instanceName, resolveInstanceDirByName(instanceName));
+            if (importBlock) {
+                console.warn(`[Launcher] Blocked launch of ${instanceName}: shared import still running.`);
+                return { success: false, error: importBlock.error };
+            }
+        } catch (e) {
+            console.error('[Launcher] Shared import check failed:', e);
+        }
+
         activeLaunches.set(instanceName, { cancelled: false });
 
         try {
@@ -1927,9 +1945,23 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                 backupManager.startScheduler(instanceName, backupConfig.backupSettings.interval);
             }
 
-            const userProfile = getUserProfile(store);
+            let userProfile = getUserProfile(store);
             if (!userProfile || !userProfile.access_token) {
                 return { success: false, error: 'Not logged in. Please login first.' };
+            }
+
+            // Abgelaufene Minecraft-Tokens fuehren im Spiel zu "Invalid session".
+            // Deshalb vor jedem Start pruefen und automatisch per Refresh-Token erneuern.
+            try {
+                const session = await ensureValidSession(store, { minValidityMs: LAUNCH_REFRESH_MARGIN_MS });
+                userProfile = session.profile;
+            } catch (e) {
+                if (e.authRejected) {
+                    console.error('[Launcher] Session refresh rejected:', e.message);
+                    return { success: false, error: 'Your Minecraft session has expired. Please sign in to your account again.' };
+                }
+                // Offline/Netzwerkfehler: mit dem vorhandenen Token weiterstarten.
+                console.warn('[Launcher] Could not refresh session, launching with existing token:', e.message);
             }
 
             const settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -2487,7 +2519,7 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
             let closeHandled = false;
 
             const appendLog = (data) => {
-                const line = data.toString();
+                const line = redactSecrets(data.toString(), [userProfile.access_token]);
 
                 if (!logCrashDetected && !gameStarted) {
                     for (const pattern of crashPatterns) {
@@ -2657,7 +2689,10 @@ $targetTitle = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromB
                         opts.quickPlay = { type: 'singleplayer', identifier: quickPlay.world };
                         console.log(`[Launcher] QuickPlay: World "${quickPlay.world}"`);
                     } else if (quickPlay.server) {
-                        opts.quickPlay = { type: 'multiplayer', identifier: quickPlay.server };
+                        // --quickPlayMultiplayer only exists since 1.20; older clients take --server/--port.
+                        const release = String(opts.version.number || '').match(/^1\.(\d+)/);
+                        const type = release && Number(release[1]) < 20 ? 'legacy' : 'multiplayer';
+                        opts.quickPlay = { type, identifier: quickPlay.server };
                         console.log(`[Launcher] QuickPlay: Server "${quickPlay.server}"`);
                     }
                 }

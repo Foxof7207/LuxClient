@@ -30,6 +30,9 @@ const electronAPI = {
     removeAccount: (uuid) => ipcRenderer.invoke('auth:remove-account', uuid),
     selectBackgroundMedia: () => ipcRenderer.invoke('settings:select-background'),
     deleteBackgroundMedia: (path) => ipcRenderer.invoke('settings:delete-background', path),
+    setBackgroundMedia: (media) => ipcRenderer.invoke('settings:set-background-media', media),
+    setAccountBackgroundSync: (enabled) => ipcRenderer.invoke('settings:set-account-background-sync', enabled),
+    syncAccountBackground: () => ipcRenderer.invoke('settings:sync-account-background'),
     selectCustomFont: () => ipcRenderer.invoke('settings:select-font'),
     deleteCustomFont: (fontId) => ipcRenderer.invoke('settings:delete-font', fontId),
     getCustomPresets: () => ipcRenderer.invoke('theme:get-custom-presets'),
@@ -135,6 +138,9 @@ const electronAPI = {
         console.log('[Preload] 🗑️ deleteModpackCode aufgerufen:', code);
         return ipcRenderer.invoke('modpack:delete-code', code);
     },
+    getModpackAdminStatus: () => ipcRenderer.invoke('modpack:admin-status'),
+    updateLiveModpackCode: (code, data) => ipcRenderer.invoke('modpack:update-live-code', code, data),
+    setModpackCodeSettings: (code, settings) => ipcRenderer.invoke('modpack:set-code-settings', code, settings),
     installSharedContent: (instanceName, modpackData) => {
         console.log('[Preload] 📥 installSharedContent aufgerufen');
         return ipcRenderer.invoke('modpack:install-shared-content', { instanceName, modpackData });
@@ -211,6 +217,11 @@ const electronAPI = {
         ipcRenderer.on('settings:updated', subscription);
         return () => ipcRenderer.removeListener('settings:updated', subscription);
     },
+    onAccountBackgroundStatus: (callback) => {
+        const subscription = (_event, value) => callback(value);
+        ipcRenderer.on('settings:account-background-status', subscription);
+        return () => ipcRenderer.removeListener('settings:account-background-status', subscription);
+    },
     onJavaProgress: (callback) => {
         const subscription = (_event, value) => callback(value);
         ipcRenderer.on('java:progress', subscription);
@@ -226,6 +237,8 @@ const electronAPI = {
         ipcRenderer.on('window-state', subscription);
         return () => ipcRenderer.removeListener('window-state', subscription);
     },
+    getSavedServers: (instanceName) => ipcRenderer.invoke('instance:get-saved-servers', instanceName),
+    pingMinecraftServer: (address, options) => ipcRenderer.invoke('server-status:ping', address, options),
     getServers: () => ipcRenderer.invoke('server:get-all'),
     createServer: (data) => ipcRenderer.invoke('server:create', data),
     deleteServer: (name) => ipcRenderer.invoke('server:delete', name),
@@ -328,6 +341,17 @@ const electronAPI = {
         ipcRenderer.on('extension:open-file', subscription);
         return () => ipcRenderer.removeListener('extension:open-file', subscription);
     },
+    getModpackImportStates: () => ipcRenderer.invoke('modpack:get-import-states'),
+    onModpackImportState: (callback) => {
+        const subscription = (_event, payload) => callback(payload);
+        ipcRenderer.on('modpack:import-state', subscription);
+        return () => ipcRenderer.removeListener('modpack:import-state', subscription);
+    },
+    onOpenModpackCode: (callback) => {
+        const subscription = (_event, payload) => callback(payload);
+        ipcRenderer.on('modpack:open-code', subscription);
+        return () => ipcRenderer.removeListener('modpack:open-code', subscription);
+    },
     onInstallFromMarketplace: (callback) => {
         const subscription = (_event, payload) => callback(payload);
         ipcRenderer.on('extension:install-from-marketplace', subscription);
@@ -403,6 +427,15 @@ const electronAPI = {
     luxCloudSyncInstance: (instanceName, options) => ipcRenderer.invoke('luxcloud:sync-instance', instanceName, options),
     luxCloudRestoreCloudInstance: (instanceUuid) => ipcRenderer.invoke('luxcloud:restore-cloud-instance', instanceUuid),
     luxCloudRestoreInstance: (instanceUuid, options) => ipcRenderer.invoke('luxcloud:restore-instance', instanceUuid, options),
+    luxCloudListShared: () => ipcRenderer.invoke('luxcloud:list-shared'),
+    luxCloudListMembers: (instanceName) => ipcRenderer.invoke('luxcloud:list-members', instanceName),
+    luxCloudAddMember: (instanceName, email) => ipcRenderer.invoke('luxcloud:add-member', instanceName, email),
+    luxCloudRemoveMember: (instanceName, userId) => ipcRenderer.invoke('luxcloud:remove-member', instanceName, userId),
+    luxCloudLeaveShared: (instanceName) => ipcRenderer.invoke('luxcloud:leave-shared', instanceName),
+    luxCloudJoinShared: (instanceUuid, options) => ipcRenderer.invoke('luxcloud:join-shared', instanceUuid, options),
+    luxCloudGetAuthors: (instanceName) => ipcRenderer.invoke('luxcloud:get-authors', instanceName),
+    luxCloudUpdateMemberPermissions: (instanceName, userId, permissions) => ipcRenderer.invoke('luxcloud:update-member-permissions', instanceName, userId, permissions),
+    luxCloudApplyCloudNames: (entries) => ipcRenderer.invoke('luxcloud:apply-cloud-names', entries),
     luxCloudListRevisions: (instanceUuid) => ipcRenderer.invoke('luxcloud:list-revisions', instanceUuid),
     luxCloudBlobCacheStats: () => ipcRenderer.invoke('luxcloud:blob-cache-stats'),
     luxCloudPruneBlobCache: (maxBytes) => ipcRenderer.invoke('luxcloud:prune-blob-cache', maxBytes),
